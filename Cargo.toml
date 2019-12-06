@@ -7,9 +7,9 @@ license = "AGPL-3.0-or-later"
 authors = ["Kaur Kuut <admin@kaurkuut.com>"]
 
 [dependencies]
-druid = { git = "https://github.com/xi-editor/druid.git", version = "0.4" }
+#druid = { git = "https://github.com/xi-editor/druid.git" }
+druid = { path = "../druid/druid" }
 gif = "0.10.3"
 gif-dispose = "2.2.0"
-
 imgref = "1.4.0"
 rgb = "0.8.14"

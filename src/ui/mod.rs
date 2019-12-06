@@ -17,17 +17,14 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use druid::{AppLauncher, WindowDesc, LocalizedString};
+mod gif;
+pub use self::gif::*;
 
-mod ui;
-use ui::ui_root;
+mod root;
+pub use root::ui_root;
 
-fn main() {
-    let window = WindowDesc::new(ui_root)
-        .title(LocalizedString::new("app_title").with_placeholder("Slark".to_string()))
-        .window_size((800.0, 600.0));
-    AppLauncher::with_window(window)
-        .use_simple_logger()
-        .launch(0)
-        .expect("launch failed");
-}
+mod stats;
+pub use stats::*;
+
+mod surface;
+pub use surface::*;

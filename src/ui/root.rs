@@ -17,17 +17,22 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use druid::{AppLauncher, WindowDesc, LocalizedString};
+use druid::{Widget};
+use druid::widget::{Flex};
+use druid::piet::{Color};
 
-mod ui;
-use ui::ui_root;
+use super::{Stats, Surface, Border};
 
-fn main() {
-    let window = WindowDesc::new(ui_root)
-        .title(LocalizedString::new("app_title").with_placeholder("Slark".to_string()))
-        .window_size((800.0, 600.0));
-    AppLauncher::with_window(window)
-        .use_simple_logger()
-        .launch(0)
-        .expect("launch failed");
+pub fn ui_root() -> impl Widget<u32> {
+    let mut col = Flex::column();
+
+    col.add_child(Stats::new(), 0.0);
+
+    let mut surface = Surface::new();
+    surface.set_border(Some(Border::new(50.0, Color::rgb8(47, 98, 237).into())));
+    surface.add("fw.gif");
+
+    col.add_child(surface, 1.0);
+
+    col
 }
