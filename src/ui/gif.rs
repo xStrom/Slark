@@ -21,9 +21,9 @@ use std::fs::File;
 
 use druid::{ BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget };
 use druid::kurbo::{Rect, Size };
-use druid::piet::{RenderContext, ImageFormat, InterpolationMode};
+use druid::piet::{RenderContext, Image, ImageFormat, InterpolationMode};
 
-use gif::{Decoder, SetParameter};
+use gif::{Reader, Decoder, SetParameter};
 use gif_dispose::*;
 use imgref::*;
 use rgb::*;
@@ -31,8 +31,31 @@ use rgb::*;
 pub struct Gif {
 	width: usize,
 	height: usize,
-	frames: Vec<ImgVec<RGBA8>>,
+	reader: Reader<File>,
+	screen: Screen,
+	frames: Vec<Frame>,
 	current_frame: usize,
+	current_delay: i64,
+}
+
+struct Frame {
+	pixels: ImgVec<RGBA8>,
+	img: Option<druid::piet::Image>,
+	delay: i64,
+}
+
+impl Frame {
+	fn image(&mut self, ctx: &mut PaintCtx) -> &Image {
+		if self.img.is_none() {
+			self.img = Some(ctx.render_ctx.make_image(
+				self.pixels.width(),
+				self.pixels.height(),
+				self.pixels.buf().as_bytes(),
+				ImageFormat::RgbaPremul,
+			).expect("Failed to create image"));
+		}
+		self.img.as_ref().unwrap()
+	}
 }
 
 impl Gif {
@@ -43,37 +66,68 @@ impl Gif {
 		// Important:
 		decoder.set(gif::ColorOutput::Indexed);
 	
-		let mut reader = decoder.read_info().expect("Failed to read info");
+		let reader = decoder.read_info().expect("Failed to read info");
 
 		let width = reader.width() as usize;
 		let height = reader.height() as usize;
 		let global_palette = reader.global_palette().map(Gif::convert_pixels);
 
-		let mut screen = Screen::new(width, height, RGBA8::default(), global_palette);
+		let screen = Screen::new(width, height, RGBA8::default(), global_palette);
+		let frames = Vec::new();
 
-		let mut frames: Vec<ImgVec<RGBA8>> = Vec::new();
-
-		while let Some(frame) = reader.read_next_frame().expect("Failed to read next frame") {
-			screen.blit_frame(&frame).expect("Failed to blit frame");
-			frames.push(screen.pixels.clone());
-		}
-
-		Gif{ width: width, height: height, frames: frames, current_frame: 0 }
+		Gif{ width: width, height: height, reader: reader, screen: screen, frames: frames, current_frame: 0, current_delay: 0 }
 	}
 
 	fn convert_pixels<T: From<RGB8>>(palette_bytes: &[u8]) -> Vec<T> {
 		palette_bytes.chunks(3).map(|byte| RGB8{r: byte[0], g: byte[1], b: byte[2]}.into()).collect()
 	}
+
+	fn current_frame(&mut self, ctx: &mut PaintCtx) -> &Image {
+		if self.frames.is_empty() {
+			self.next_frame(ctx)
+		} else {
+			self.frames[self.current_frame].image(ctx)
+		}
+	}
+
+	fn next_frame(&mut self, ctx: &mut PaintCtx) -> &Image {
+		// Do GIF decoding on-demand here
+		if let Some(frame) = self.reader.read_next_frame().expect("Failed to read next frame") {
+			self.screen.blit_frame(&frame).expect("Failed to blit frame");
+			self.frames.push(Frame{pixels: self.screen.pixels.clone(), img: None, delay: frame.delay as i64 * 10_000_000});
+		}
+
+		// Progress to the next frame
+		self.current_frame += 1;
+		if self.current_frame == self.frames.len() {
+			self.current_frame = 0;
+		}
+		// Add the post-frame delay to our counter
+		self.current_delay += self.frames[self.current_frame].delay;
+		// Return the frame
+		self.current_frame(ctx)
+	}
 }
 
 impl Widget<u32> for Gif {
 	fn paint(&mut self, ctx: &mut PaintCtx, base_state: &BaseState, _data: &u32, _env: &Env) {
-		// TODO: Cache this image
-		let img = ctx.make_image(self.width, self.height, self.frames[self.current_frame].buf().as_bytes(), ImageFormat::RgbaPremul).expect("Failed to create image");
-
+		// Determine the area of the frame to paint
 		let size = base_state.size();
 		let rect = Rect::new(0.0, 0.0, size.width, size.height);
-		ctx.render_ctx.draw_image(&img, rect, rect, InterpolationMode::Bilinear);
+
+		if self.current_delay > 0 {
+			// Still more waiting to do, just paint the current frame
+			let img = self.current_frame(ctx);
+			ctx.render_ctx.draw_image(img, rect, rect, InterpolationMode::Bilinear);
+		} else {
+			// Paint until there's a delay specified
+			// TODO: Detect infinite loops due to GIFs with only 0-delay frames
+			while self.current_delay <= 0 {
+				// Paint the next frame
+				let img = self.next_frame(ctx);
+				ctx.render_ctx.draw_image(img, rect, rect, InterpolationMode::Bilinear);
+			}
+		}
 	}
 
 	fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u32, _env: &Env) -> Size {
@@ -87,10 +141,7 @@ impl Widget<u32> for Gif {
 				ctx.request_anim_frame();
 			}
 			Event::AnimFrame(interval) => {
-				self.current_frame += 1;
-				if self.current_frame == self.frames.len() {
-					self.current_frame = 0;
-				}
+				self.current_delay -= *interval as i64;
 				ctx.request_anim_frame();
 				// When we do fine-grained invalidation,
 				// no doubt this will be required:
