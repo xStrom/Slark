@@ -20,8 +20,8 @@
 use std::fs::File;
 
 use druid::{ BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget };
-use druid::kurbo::{Rect, Size };
-use druid::piet::{RenderContext, Image, ImageFormat, InterpolationMode};
+use druid::kurbo::{Rect, Size};
+use druid::piet::{Color, RenderContext, Image, ImageFormat, InterpolationMode};
 
 use gif::{Reader, Decoder, SetParameter};
 use gif_dispose::*;
@@ -61,7 +61,14 @@ impl Gif {
 
 		let source = Source{ reader: reader, screen: screen };
 
-		Gif{ width: width, height: height, source: Some(source), frames: Vec::new(), current_frame: 0, current_delay: 0 }
+		Gif{
+			width: width,
+			height: height,
+			source: Some(source),
+			frames: Vec::new(),
+			current_frame: 0,
+			current_delay: 0,
+		}
 	}
 
 	fn convert_pixels<T: From<RGB8>>(palette_bytes: &[u8]) -> Vec<T> {
@@ -129,6 +136,10 @@ impl Widget<u32> for Gif {
 				}
 			}
 		}
+
+		if base_state.is_active() {
+			ctx.render_ctx.stroke(rect.inset(-2.0), &Color::rgb8(245, 132, 66), 4.0);
+		}
 	}
 
 	fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u32, _env: &Env) -> Size {
@@ -139,7 +150,12 @@ impl Widget<u32> for Gif {
 	fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u32, _env: &Env) {
 		match event {
 			Event::MouseDown(_) => {
+				// TODO: Get rid of this request_anim_frame here
 				ctx.request_anim_frame();
+				ctx.set_active(true);
+			},
+			Event::MouseUp(_) => {
+				ctx.set_active(false);
 			}
 			Event::AnimFrame(interval) => {
 				self.current_delay -= *interval as i64;
