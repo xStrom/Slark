@@ -25,57 +25,43 @@ use druid::piet::{RenderContext, Image, ImageFormat, InterpolationMode};
 
 use gif::{Reader, Decoder, SetParameter};
 use gif_dispose::*;
-use imgref::*;
 use rgb::*;
 
 pub struct Gif {
 	width: usize,
 	height: usize,
-	reader: Reader<File>,
-	screen: Screen,
+	source: Option<Source>,
 	frames: Vec<Frame>,
 	current_frame: usize,
 	current_delay: i64,
 }
 
-struct Frame {
-	pixels: ImgVec<RGBA8>,
-	img: Option<druid::piet::Image>,
-	delay: i64,
+struct Source {
+	reader: Reader<File>,
+	screen: Screen,
 }
 
-impl Frame {
-	fn image(&mut self, ctx: &mut PaintCtx) -> &Image {
-		if self.img.is_none() {
-			self.img = Some(ctx.render_ctx.make_image(
-				self.pixels.width(),
-				self.pixels.height(),
-				self.pixels.buf().as_bytes(),
-				ImageFormat::RgbaPremul,
-			).expect("Failed to create image"));
-		}
-		self.img.as_ref().unwrap()
-	}
+struct Frame {
+	img: druid::piet::Image,
+	delay: i64,
 }
 
 impl Gif {
 	pub fn new(filename: &str) -> Gif {
 		let file = File::open(filename).expect("Failed to open file");
 		let mut decoder = Decoder::new(file);
-	
-		// Important:
 		decoder.set(gif::ColorOutput::Indexed);
 	
 		let reader = decoder.read_info().expect("Failed to read info");
-
 		let width = reader.width() as usize;
 		let height = reader.height() as usize;
 		let global_palette = reader.global_palette().map(Gif::convert_pixels);
 
 		let screen = Screen::new(width, height, RGBA8::default(), global_palette);
-		let frames = Vec::new();
 
-		Gif{ width: width, height: height, reader: reader, screen: screen, frames: frames, current_frame: 0, current_delay: 0 }
+		let source = Source{ reader: reader, screen: screen };
+
+		Gif{ width: width, height: height, source: Some(source), frames: Vec::new(), current_frame: 0, current_delay: 0 }
 	}
 
 	fn convert_pixels<T: From<RGB8>>(palette_bytes: &[u8]) -> Vec<T> {
@@ -86,17 +72,28 @@ impl Gif {
 		if self.frames.is_empty() {
 			self.next_frame(ctx)
 		} else {
-			self.frames[self.current_frame].image(ctx)
+			&self.frames[self.current_frame].img
 		}
 	}
 
 	fn next_frame(&mut self, ctx: &mut PaintCtx) -> &Image {
 		// Do GIF decoding on-demand here
-		if let Some(frame) = self.reader.read_next_frame().expect("Failed to read next frame") {
-			self.screen.blit_frame(&frame).expect("Failed to blit frame");
-			self.frames.push(Frame{pixels: self.screen.pixels.clone(), img: None, delay: frame.delay as i64 * 10_000_000});
+		// NOTE: This is surprisingly slow, especially in debug builds
+		if self.source.is_some() {
+			let source = self.source.as_mut().unwrap();
+			if let Some(frame) = source.reader.read_next_frame().expect("Failed to read next frame") {
+				source.screen.blit_frame(&frame).expect("Failed to blit frame");
+				let img = ctx.render_ctx.make_image(
+					source.screen.pixels.width(),
+					source.screen.pixels.height(),
+					source.screen.pixels.buf().as_bytes(),
+					ImageFormat::RgbaPremul,
+				).expect("Failed to create image");
+				self.frames.push(Frame{img: img, delay: frame.delay as i64 * 10_000_000});
+			} else {
+				self.source = None;
+			}
 		}
-
 		// Progress to the next frame
 		self.current_frame += 1;
 		if self.current_frame == self.frames.len() {
@@ -105,7 +102,7 @@ impl Gif {
 		// Add the post-frame delay to our counter
 		self.current_delay += self.frames[self.current_frame].delay;
 		// Return the frame
-		self.current_frame(ctx)
+		&self.frames[self.current_frame].img
 	}
 }
 
@@ -121,11 +118,15 @@ impl Widget<u32> for Gif {
 			ctx.render_ctx.draw_image(img, rect, rect, InterpolationMode::Bilinear);
 		} else {
 			// Paint until there's a delay specified
-			// TODO: Detect infinite loops due to GIFs with only 0-delay frames
+			let start_frame = self.current_frame;
 			while self.current_delay <= 0 {
 				// Paint the next frame
 				let img = self.next_frame(ctx);
 				ctx.render_ctx.draw_image(img, rect, rect, InterpolationMode::Bilinear);
+				// Detect infinite loops due to GIFs with only 0-delay frames
+				if self.current_frame == start_frame {
+					break;
+				}
 			}
 		}
 	}
