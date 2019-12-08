@@ -77,20 +77,6 @@ impl Stats {
 }
 
 impl Widget<u32> for Stats {
-    fn paint(
-        &mut self,
-        paint_ctx: &mut PaintCtx,
-        _base_state: &BaseState,
-        _data: &u32,
-        _env: &Env,
-    ) {
-        self.label_fps.paint(paint_ctx, _base_state, &self.average_fps(), _env);
-    }
-
-    fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u32, _env: &Env) -> Size {
-        bc.constrain((100.0, 50.0))
-    }
-
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u32, _env: &Env) {
         match event {
             Event::MouseDown(_) => {
@@ -108,4 +94,18 @@ impl Widget<u32> for Stats {
     }
 
     fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: Option<&u32>, _data: &u32, _env: &Env) {}
+
+    fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u32, _env: &Env) -> Size {
+        bc.constrain((100.0, 50.0))
+    }
+
+    fn paint(
+        &mut self,
+        paint_ctx: &mut PaintCtx,
+        _base_state: &BaseState,
+        _data: &u32,
+        _env: &Env,
+    ) {
+        self.label_fps.paint(paint_ctx, _base_state, &self.average_fps(), _env);
+    }
 }

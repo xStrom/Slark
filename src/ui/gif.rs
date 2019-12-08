@@ -19,13 +19,18 @@
 
 use std::fs::File;
 
-use druid::{ BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget };
-use druid::kurbo::{Rect, Size};
+use druid::{ BaseState, BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget };
+use druid::kurbo::{Rect, Size, Point};
 use druid::piet::{Color, RenderContext, Image, ImageFormat, InterpolationMode};
 
 use gif::{Reader, Decoder, SetParameter};
 use gif_dispose::*;
 use rgb::*;
+
+#[derive(Data, Clone)]
+pub struct ImageData {
+	pub origin: Point,
+}
 
 pub struct Gif {
 	width: usize,
@@ -71,6 +76,14 @@ impl Gif {
 		}
 	}
 
+	pub fn width(&self) -> usize {
+		self.width
+	}
+
+	pub fn height(&self) -> usize {
+		self.height
+	}
+
 	fn convert_pixels<T: From<RGB8>>(palette_bytes: &[u8]) -> Vec<T> {
 		palette_bytes.chunks(3).map(|byte| RGB8{r: byte[0], g: byte[1], b: byte[2]}.into()).collect()
 	}
@@ -113,41 +126,8 @@ impl Gif {
 	}
 }
 
-impl Widget<u32> for Gif {
-	fn paint(&mut self, ctx: &mut PaintCtx, base_state: &BaseState, _data: &u32, _env: &Env) {
-		// Determine the area of the frame to paint
-		let size = base_state.size();
-		let rect = Rect::new(0.0, 0.0, size.width, size.height);
-
-		if self.current_delay > 0 {
-			// Still more waiting to do, just paint the current frame
-			let img = self.current_frame(ctx);
-			ctx.render_ctx.draw_image(img, rect, rect, InterpolationMode::Bilinear);
-		} else {
-			// Paint until there's a delay specified
-			let start_frame = self.current_frame;
-			while self.current_delay <= 0 {
-				// Paint the next frame
-				let img = self.next_frame(ctx);
-				ctx.render_ctx.draw_image(img, rect, rect, InterpolationMode::Bilinear);
-				// Detect infinite loops due to GIFs with only 0-delay frames
-				if self.current_frame == start_frame {
-					break;
-				}
-			}
-		}
-
-		if base_state.is_active() {
-			ctx.render_ctx.stroke(rect.inset(-2.0), &Color::rgb8(245, 132, 66), 4.0);
-		}
-	}
-
-	fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u32, _env: &Env) -> Size {
-		bc.debug_check("Gif");
-		bc.constrain((self.width as f64, self.height as f64))
-	}
-
-	fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u32, _env: &Env) {
+impl Widget<ImageData> for Gif {
+	fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut ImageData, _env: &Env) {
 		match event {
 			Event::MouseDown(_) => {
 				// TODO: Get rid of this request_anim_frame here
@@ -168,5 +148,39 @@ impl Widget<u32> for Gif {
 		}
 	}
 
-	fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: Option<&u32>, _data: &u32, _env: &Env) {}
+	fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: Option<&ImageData>, _data: &ImageData, _env: &Env) {}
+
+	fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &ImageData, _env: &Env) -> Size {
+		bc.debug_check("Gif");
+		bc.constrain((self.width as f64 - data.origin.x, self.height as f64 - data.origin.y))
+	}
+
+	fn paint(&mut self, ctx: &mut PaintCtx, base_state: &BaseState, data: &ImageData, _env: &Env) {
+		// Determine the area of the frame to paint
+		let size = base_state.size();
+		let src_rect = Rect::from_origin_size(data.origin, size);
+		let dst_rect = Rect::from_origin_size(Point::ZERO, size);
+
+		if self.current_delay > 0 {
+			// Still more waiting to do, just paint the current frame
+			let img = self.current_frame(ctx);
+			ctx.render_ctx.draw_image(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+		} else {
+			// Paint until there's a delay specified
+			let start_frame = self.current_frame;
+			while self.current_delay <= 0 {
+				// Paint the next frame
+				let img = self.next_frame(ctx);
+				ctx.render_ctx.draw_image(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+				// Detect infinite loops due to GIFs with only 0-delay frames
+				if self.current_frame == start_frame {
+					break;
+				}
+			}
+		}
+
+		if base_state.is_active() {
+			ctx.render_ctx.stroke(dst_rect.inset(-2.0), &Color::rgb8(245, 132, 66), 4.0);
+		}
+	}
 }
