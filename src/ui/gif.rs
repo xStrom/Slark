@@ -20,7 +20,7 @@
 use std::fs::File;
 
 use druid::{ BaseState, BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget };
-use druid::kurbo::{Rect, Size, Point};
+use druid::kurbo::{Rect, Line, Size, Point};
 use druid::piet::{Color, RenderContext, Image, ImageFormat, InterpolationMode};
 
 use gif::{Reader, Decoder, SetParameter};
@@ -179,8 +179,32 @@ impl Widget<ImageData> for Gif {
 			}
 		}
 
+		// If active, paint a border on top of the edge of the image
+		// TODO: What if it's a 1px image?
 		if base_state.is_active() {
-			ctx.render_ctx.stroke(dst_rect.inset(-2.0), &Color::rgb8(245, 132, 66), 4.0);
+			let brush = ctx.render_ctx.solid_brush(Color::rgb8(245, 132, 66));
+			let width = 1.0;
+
+			// Top
+			if data.origin.y == 0.0 {
+				let line = Line::new((dst_rect.x0, dst_rect.y0 + 0.5), (dst_rect.x1, dst_rect.y0 + 0.5));
+				ctx.render_ctx.stroke(line, &brush, width);
+			}
+			// Right
+			if data.origin.x == self.width as f64 - size.width {
+				let line = Line::new((dst_rect.x1 - 0.5, dst_rect.y0), (dst_rect.x1 - 0.5, dst_rect.y1));
+				ctx.render_ctx.stroke(line, &brush, width);
+			}
+			// Bottom
+			if data.origin.y == self.height as f64 - size.height {
+				let line = Line::new((dst_rect.x0, dst_rect.y1 - 0.5), (dst_rect.x1, dst_rect.y1 - 0.5));
+				ctx.render_ctx.stroke(line, &brush, width);
+			}
+			// Left
+			if data.origin.x == 0.0 {
+				let line = Line::new((dst_rect.x0 + 0.5, dst_rect.y0), (dst_rect.x0 + 0.5, dst_rect.y1));
+				ctx.render_ctx.stroke(line, &brush, width);
+			}
 		}
 	}
 }

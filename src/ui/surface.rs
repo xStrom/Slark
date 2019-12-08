@@ -185,6 +185,7 @@ impl Widget<u32> for Surface {
         //ctx.render_ctx.clip(Rect::from_origin_size(Point::ZERO, size));
 
         // Paint border, if there is one
+        // TODO: Eventually move this after painting the images to cover up any anti-aliasing overflow
         if let Some(border) = &self.border {
             let offset = border.width / 2.0;
             let rect = Rect::from_origin_size(
