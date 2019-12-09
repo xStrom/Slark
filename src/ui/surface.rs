@@ -17,9 +17,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use druid::{ BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget, WidgetPod };
 use druid::kurbo::{Point, Rect, Size, Vec2};
 use druid::piet::{PaintBrush, RenderContext};
+use druid::{BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget, WidgetPod};
 
 use crate::ui::gif::{Gif, ImageData};
 
@@ -74,7 +74,10 @@ pub struct Border {
 
 impl Border {
     pub fn new(width: f64, brush: PaintBrush) -> Border {
-        Border{width: width, brush: brush}
+        Border {
+            width: width,
+            brush: brush,
+        }
     }
 }
 
@@ -85,7 +88,13 @@ struct Drag {
 
 impl Surface {
     pub fn new() -> Surface {
-        Surface{next_id: 0, images: Vec::new(), images_area: Size::ZERO, border: None, drag: None}
+        Surface {
+            next_id: 0,
+            images: Vec::new(),
+            images_area: Size::ZERO,
+            border: None,
+            drag: None,
+        }
     }
 
     pub fn set_border(&mut self, border: Option<Border>) {
@@ -93,11 +102,11 @@ impl Surface {
     }
 
     pub fn add(&mut self, filename: &str) {
-        self.images.push(Image{
+        self.images.push(Image {
             id: self.next_id,
             widget_pod: WidgetPod::new(Gif::new(filename)),
             origin: Point::ZERO,
-            data: ImageData{origin: Point::ZERO},
+            data: ImageData { origin: Point::ZERO },
         });
         self.next_id += 1;
     }
@@ -112,14 +121,17 @@ impl Widget<u32> for Surface {
                         let rect = image.widget_pod.get_layout_rect();
                         if rect.contains(mouse_event.pos) {
                             // Start the drag event
-                            self.drag = Some(Drag{start: mouse_event.pos, image_id: image.id});
+                            self.drag = Some(Drag {
+                                start: mouse_event.pos,
+                                image_id: image.id,
+                            });
                             // Send the event to the image as well
                             image.widget_pod.event(ctx, event, &mut image.data, env);
                             break;
                         }
                     }
                 }
-            },
+            }
             Event::MouseMoved(mouse_event) => {
                 if let Some(drag) = &mut self.drag {
                     if let Some(image) = self.images.iter_mut().find(|image| image.id == drag.image_id) {
@@ -127,7 +139,7 @@ impl Widget<u32> for Surface {
                         drag.start = mouse_event.pos;
                     }
                 }
-            },
+            }
             Event::MouseUp(mouse_event) => {
                 if mouse_event.button.is_left() {
                     if let Some(drag) = &self.drag {
@@ -139,13 +151,13 @@ impl Widget<u32> for Surface {
                         self.drag = None;
                     }
                 }
-            },
+            }
             _ => {
                 // Pass the event to all the images
                 for image in self.images.iter_mut() {
                     image.widget_pod.event(ctx, event, &mut image.data, env);
                 }
-            },
+            }
         }
     }
 

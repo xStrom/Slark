@@ -17,7 +17,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use druid::{AppLauncher, WindowDesc, LocalizedString};
+use druid::{AppLauncher, LocalizedString, WindowDesc};
 
 mod ui;
 use ui::ui_root;

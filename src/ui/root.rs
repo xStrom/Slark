@@ -17,11 +17,11 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use druid::{Widget};
-use druid::widget::{Flex};
-use druid::piet::{Color};
+use druid::piet::Color;
+use druid::widget::Flex;
+use druid::Widget;
 
-use super::{Stats, Surface, Border};
+use super::{Border, Stats, Surface};
 
 pub fn ui_root() -> impl Widget<u32> {
     let mut col = Flex::column();
@@ -31,6 +31,7 @@ pub fn ui_root() -> impl Widget<u32> {
     let mut surface = Surface::new();
     surface.set_border(Some(Border::new(50.0, Color::rgb8(47, 98, 237).into())));
     surface.add("fw.gif");
+    //surface.add("fw-alpha.gif");
 
     col.add_child(surface, 1.0);
 

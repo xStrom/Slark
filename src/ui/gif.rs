@@ -18,193 +18,229 @@
 */
 
 use std::fs::File;
+use std::sync::mpsc::{channel, Receiver};
+use std::thread;
+use std::time::Instant;
 
-use druid::{ BaseState, BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget };
-use druid::kurbo::{Rect, Line, Size, Point};
-use druid::piet::{Color, RenderContext, Image, ImageFormat, InterpolationMode};
+use druid::kurbo::{Line, Point, Rect, Size};
+use druid::piet::{Color, Image, ImageFormat, InterpolationMode, RenderContext};
+use druid::{BaseState, BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget};
 
-use gif::{Reader, Decoder, SetParameter};
+use gif::{Decoder, SetParameter};
 use gif_dispose::*;
+use imgref::*;
 use rgb::*;
 
 #[derive(Data, Clone)]
 pub struct ImageData {
-	pub origin: Point,
+    pub origin: Point,
 }
 
 pub struct Gif {
-	width: usize,
-	height: usize,
-	source: Option<Source>,
-	frames: Vec<Frame>,
-	current_frame: usize,
-	current_delay: i64,
+    width: usize,
+    height: usize,
+    source: Option<Receiver<FrameSource>>,
+    frames: Vec<Frame>,
+    current_frame: usize,
+    current_delay: i64,
 }
 
-struct Source {
-	reader: Reader<File>,
-	screen: Screen,
+struct FrameSource {
+    pixels: ImgVec<RGBA8>,
+    delay: i64,
 }
 
 struct Frame {
-	img: druid::piet::Image,
-	delay: i64,
+    img: druid::piet::Image,
+    delay: i64,
 }
 
 impl Gif {
-	pub fn new(filename: &str) -> Gif {
-		let file = File::open(filename).expect("Failed to open file");
-		let mut decoder = Decoder::new(file);
-		decoder.set(gif::ColorOutput::Indexed);
-	
-		let reader = decoder.read_info().expect("Failed to read info");
-		let width = reader.width() as usize;
-		let height = reader.height() as usize;
-		let global_palette = reader.global_palette().map(Gif::convert_pixels);
+    pub fn new(filename: &str) -> Gif {
+        let file = File::open(filename).expect("Failed to open file");
+        let mut decoder = Decoder::new(file);
+        decoder.set(gif::ColorOutput::Indexed);
 
-		let screen = Screen::new(width, height, RGBA8::default(), global_palette);
+        let mut reader = decoder.read_info().expect("Failed to read info");
+        let width = reader.width() as usize;
+        let height = reader.height() as usize;
+        let global_palette = reader.global_palette().map(Gif::convert_pixels);
 
-		let source = Source{ reader: reader, screen: screen };
+        let mut screen = Screen::new(width, height, RGBA8::default(), global_palette);
 
-		Gif{
-			width: width,
-			height: height,
-			source: Some(source),
-			frames: Vec::new(),
-			current_frame: 0,
-			current_delay: 0,
-		}
-	}
+        let (sender, receiver) = channel();
 
-	pub fn width(&self) -> usize {
-		self.width
-	}
+        let debug_filename = String::from(filename);
 
-	pub fn height(&self) -> usize {
-		self.height
-	}
+        thread::spawn(move || {
+            let start = Instant::now();
+            // NOTE: The decoding/bliting is surprisingly slow, especially in debug builds
+            while let Some(frame) = reader.read_next_frame().expect("Failed to read next frame") {
+                screen.blit_frame(&frame).expect("Failed to blit frame");
+                sender
+                    .send(FrameSource {
+                        pixels: screen.pixels.clone(),
+                        delay: frame.delay as i64 * 10_000_000,
+                    })
+                    .expect("Failed to send frame source");
+            }
+            println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
+        });
 
-	fn convert_pixels<T: From<RGB8>>(palette_bytes: &[u8]) -> Vec<T> {
-		palette_bytes.chunks(3).map(|byte| RGB8{r: byte[0], g: byte[1], b: byte[2]}.into()).collect()
-	}
+        Gif {
+            width: width,
+            height: height,
+            source: Some(receiver),
+            frames: Vec::new(),
+            current_frame: 0,
+            current_delay: 0,
+        }
+    }
 
-	fn current_frame(&mut self, ctx: &mut PaintCtx) -> &Image {
-		if self.frames.is_empty() {
-			self.next_frame(ctx)
-		} else {
-			&self.frames[self.current_frame].img
-		}
-	}
+    pub fn width(&self) -> usize {
+        self.width
+    }
 
-	fn next_frame(&mut self, ctx: &mut PaintCtx) -> &Image {
-		// Do GIF decoding on-demand here
-		// NOTE: This is surprisingly slow, especially in debug builds
-		if self.source.is_some() {
-			let source = self.source.as_mut().unwrap();
-			if let Some(frame) = source.reader.read_next_frame().expect("Failed to read next frame") {
-				source.screen.blit_frame(&frame).expect("Failed to blit frame");
-				let img = ctx.render_ctx.make_image(
-					source.screen.pixels.width(),
-					source.screen.pixels.height(),
-					source.screen.pixels.buf().as_bytes(),
-					ImageFormat::RgbaPremul,
-				).expect("Failed to create image");
-				self.frames.push(Frame{img: img, delay: frame.delay as i64 * 10_000_000});
-			} else {
-				self.source = None;
-			}
-		}
-		// Progress to the next frame
-		self.current_frame += 1;
-		if self.current_frame == self.frames.len() {
-			self.current_frame = 0;
-		}
-		// Add the post-frame delay to our counter
-		self.current_delay += self.frames[self.current_frame].delay;
-		// Return the frame
-		&self.frames[self.current_frame].img
-	}
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    fn convert_pixels<T: From<RGB8>>(palette_bytes: &[u8]) -> Vec<T> {
+        palette_bytes
+            .chunks(3)
+            .map(|byte| {
+                RGB8 {
+                    r: byte[0],
+                    g: byte[1],
+                    b: byte[2],
+                }
+                .into()
+            })
+            .collect()
+    }
+
+    fn current_frame(&mut self, ctx: &mut PaintCtx) -> &Image {
+        if self.frames.is_empty() {
+            self.next_frame(ctx)
+        } else {
+            &self.frames[self.current_frame].img
+        }
+    }
+
+    fn next_frame(&mut self, ctx: &mut PaintCtx) -> &Image {
+        if self.source.is_some() {
+            let receiver = self.source.as_ref().unwrap();
+            if let Ok(source) = receiver.recv() {
+                let img = ctx
+                    .render_ctx
+                    .make_image(
+                        source.pixels.width(),
+                        source.pixels.height(),
+                        source.pixels.buf().as_bytes(),
+                        ImageFormat::RgbaPremul,
+                    )
+                    .expect("Failed to create image");
+                self.frames.push(Frame {
+                    img: img,
+                    delay: source.delay,
+                });
+            } else {
+                self.source = None;
+            }
+        }
+        // Progress to the next frame
+        self.current_frame += 1;
+        if self.current_frame == self.frames.len() {
+            self.current_frame = 0;
+        }
+        // Add the post-frame delay to our counter
+        self.current_delay += self.frames[self.current_frame].delay;
+        // Return the frame
+        &self.frames[self.current_frame].img
+    }
 }
 
 impl Widget<ImageData> for Gif {
-	fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut ImageData, _env: &Env) {
-		match event {
-			Event::MouseDown(_) => {
-				// TODO: Get rid of this request_anim_frame here
-				ctx.request_anim_frame();
-				ctx.set_active(true);
-			},
-			Event::MouseUp(_) => {
-				ctx.set_active(false);
-			}
-			Event::AnimFrame(interval) => {
-				self.current_delay -= *interval as i64;
-				ctx.request_anim_frame();
-				// When we do fine-grained invalidation,
-				// no doubt this will be required:
-				//ctx.invalidate();
-			}
-			_ => (),
-		}
-	}
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut ImageData, _env: &Env) {
+        match event {
+            Event::MouseDown(_) => {
+                // TODO: Get rid of this request_anim_frame here
+                ctx.request_anim_frame();
+                ctx.set_active(true);
+            }
+            Event::MouseUp(_) => {
+                ctx.set_active(false);
+            }
+            Event::AnimFrame(interval) => {
+                self.current_delay -= *interval as i64;
+                ctx.request_anim_frame();
+                // When we do fine-grained invalidation,
+                // no doubt this will be required:
+                //ctx.invalidate();
+            }
+            _ => (),
+        }
+    }
 
-	fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: Option<&ImageData>, _data: &ImageData, _env: &Env) {}
+    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: Option<&ImageData>, _data: &ImageData, _env: &Env) {}
 
-	fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &ImageData, _env: &Env) -> Size {
-		bc.debug_check("Gif");
-		bc.constrain((self.width as f64 - data.origin.x, self.height as f64 - data.origin.y))
-	}
+    fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &ImageData, _env: &Env) -> Size {
+        bc.debug_check("Gif");
+        bc.constrain((self.width as f64 - data.origin.x, self.height as f64 - data.origin.y))
+    }
 
-	fn paint(&mut self, ctx: &mut PaintCtx, base_state: &BaseState, data: &ImageData, _env: &Env) {
-		// Determine the area of the frame to paint
-		let size = base_state.size();
-		let src_rect = Rect::from_origin_size(data.origin, size);
-		let dst_rect = Rect::from_origin_size(Point::ZERO, size);
+    fn paint(&mut self, ctx: &mut PaintCtx, base_state: &BaseState, data: &ImageData, _env: &Env) {
+        // Determine the area of the frame to paint
+        let size = base_state.size();
+        let src_rect = Rect::from_origin_size(data.origin, size);
+        let dst_rect = Rect::from_origin_size(Point::ZERO, size);
 
-		if self.current_delay > 0 {
-			// Still more waiting to do, just paint the current frame
-			let img = self.current_frame(ctx);
-			ctx.render_ctx.draw_image(img, src_rect, dst_rect, InterpolationMode::Bilinear);
-		} else {
-			// Paint until there's a delay specified
-			let start_frame = self.current_frame;
-			while self.current_delay <= 0 {
-				// Paint the next frame
-				let img = self.next_frame(ctx);
-				ctx.render_ctx.draw_image(img, src_rect, dst_rect, InterpolationMode::Bilinear);
-				// Detect infinite loops due to GIFs with only 0-delay frames
-				if self.current_frame == start_frame {
-					break;
-				}
-			}
-		}
+        if self.current_delay > 0 {
+            // Still more waiting to do, just paint the current frame
+            let img = self.current_frame(ctx);
+            ctx.render_ctx
+                .draw_image(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+        } else {
+            // Paint until there's a delay specified
+            let start_frame = self.current_frame;
+            while self.current_delay <= 0 {
+                // Paint the next frame
+                let img = self.next_frame(ctx);
+                ctx.render_ctx
+                    .draw_image(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+                // Detect infinite loops due to GIFs with only 0-delay frames
+                if self.current_frame == start_frame {
+                    break;
+                }
+            }
+        }
 
-		// If active, paint a border on top of the edge of the image
-		// TODO: What if it's a 1px image?
-		if base_state.is_active() {
-			let brush = ctx.render_ctx.solid_brush(Color::rgb8(245, 132, 66));
-			let width = 1.0;
+        // If active, paint a border on top of the edge of the image
+        // TODO: What if it's a 1px image?
+        if base_state.is_active() {
+            let brush = ctx.render_ctx.solid_brush(Color::rgb8(245, 132, 66));
+            let width = 1.0;
 
-			// Top
-			if data.origin.y == 0.0 {
-				let line = Line::new((dst_rect.x0, dst_rect.y0 + 0.5), (dst_rect.x1, dst_rect.y0 + 0.5));
-				ctx.render_ctx.stroke(line, &brush, width);
-			}
-			// Right
-			if data.origin.x == self.width as f64 - size.width {
-				let line = Line::new((dst_rect.x1 - 0.5, dst_rect.y0), (dst_rect.x1 - 0.5, dst_rect.y1));
-				ctx.render_ctx.stroke(line, &brush, width);
-			}
-			// Bottom
-			if data.origin.y == self.height as f64 - size.height {
-				let line = Line::new((dst_rect.x0, dst_rect.y1 - 0.5), (dst_rect.x1, dst_rect.y1 - 0.5));
-				ctx.render_ctx.stroke(line, &brush, width);
-			}
-			// Left
-			if data.origin.x == 0.0 {
-				let line = Line::new((dst_rect.x0 + 0.5, dst_rect.y0), (dst_rect.x0 + 0.5, dst_rect.y1));
-				ctx.render_ctx.stroke(line, &brush, width);
-			}
-		}
-	}
+            // Top
+            if data.origin.y == 0.0 {
+                let line = Line::new((dst_rect.x0, dst_rect.y0 + 0.5), (dst_rect.x1, dst_rect.y0 + 0.5));
+                ctx.render_ctx.stroke(line, &brush, width);
+            }
+            // Right
+            if data.origin.x == self.width as f64 - size.width {
+                let line = Line::new((dst_rect.x1 - 0.5, dst_rect.y0), (dst_rect.x1 - 0.5, dst_rect.y1));
+                ctx.render_ctx.stroke(line, &brush, width);
+            }
+            // Bottom
+            if data.origin.y == self.height as f64 - size.height {
+                let line = Line::new((dst_rect.x0, dst_rect.y1 - 0.5), (dst_rect.x1, dst_rect.y1 - 0.5));
+                ctx.render_ctx.stroke(line, &brush, width);
+            }
+            // Left
+            if data.origin.x == 0.0 {
+                let line = Line::new((dst_rect.x0 + 0.5, dst_rect.y0), (dst_rect.x0 + 0.5, dst_rect.y1));
+                ctx.render_ctx.stroke(line, &brush, width);
+            }
+        }
+    }
 }

@@ -17,9 +17,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use druid::{ BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget };
-use druid::widget::{ DynLabel };
-use druid::kurbo::{Size};
+use druid::kurbo::Size;
+use druid::widget::DynLabel;
+use druid::{BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget};
 
 pub struct Stats {
     frame_times: [u64; Stats::FRAME_TIME_COUNT],
@@ -32,13 +32,11 @@ impl Stats {
     const FRAME_TIME_COUNT: usize = 288;
 
     pub fn new() -> Stats {
-        Stats{
+        Stats {
             frame_times: [0; Stats::FRAME_TIME_COUNT],
             frame_time_index: 0,
             initializing: true,
-            label_fps: DynLabel::new(|data, _| {
-                format!("FPS: {}", *data)
-            }),
+            label_fps: DynLabel::new(|data, _| format!("FPS: {}", *data)),
         }
     }
 
@@ -99,13 +97,7 @@ impl Widget<u32> for Stats {
         bc.constrain((100.0, 50.0))
     }
 
-    fn paint(
-        &mut self,
-        paint_ctx: &mut PaintCtx,
-        _base_state: &BaseState,
-        _data: &u32,
-        _env: &Env,
-    ) {
+    fn paint(&mut self, paint_ctx: &mut PaintCtx, _base_state: &BaseState, _data: &u32, _env: &Env) {
         self.label_fps.paint(paint_ctx, _base_state, &self.average_fps(), _env);
     }
 }
