@@ -22,6 +22,8 @@ use druid::{AppLauncher, LocalizedString, WindowDesc};
 mod ui;
 use ui::ui_root;
 
+mod project;
+
 fn main() {
     let window = WindowDesc::new(ui_root)
         .title(LocalizedString::new("app_title").with_placeholder("Slark".to_string()))

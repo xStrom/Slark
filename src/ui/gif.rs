@@ -18,6 +18,7 @@
 */
 
 use std::fs::File;
+use std::path::Path;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
@@ -57,8 +58,8 @@ struct Frame {
 }
 
 impl Gif {
-    pub fn new(filename: &str) -> Gif {
-        let file = File::open(filename).expect("Failed to open file");
+    pub fn new(path: &Path) -> Gif {
+        let file = File::open(path).expect("Failed to open file");
         let mut decoder = Decoder::new(file);
         decoder.set(gif::ColorOutput::Indexed);
 
@@ -71,7 +72,7 @@ impl Gif {
 
         let (sender, receiver) = channel();
 
-        let debug_filename = String::from(filename);
+        let debug_filename = String::from(path.to_str().expect("GIF path is invalid UTF-8"));
 
         thread::spawn(move || {
             let start = Instant::now();

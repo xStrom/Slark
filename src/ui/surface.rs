@@ -23,102 +23,36 @@ use druid::{
     BaseState, BoxConstraints, Env, Event, EventCtx, KeyCode, LayoutCtx, PaintCtx, UpdateCtx, Widget, WidgetPod,
 };
 
+use crate::project::{Image as ProjectImage, Project};
 use crate::ui::gif::{Gif, ImageData};
 
 pub struct Surface {
-    next_id: usize,
+    project: Project,
     images: Vec<Image>,
-    images_area: Size,
+    images_area_size: Size,
     border: Option<Border>,
     drag: Option<Drag>,
     active_image: Option<usize>,
-    layers: Vec<usize>,
-}
-
-struct Image {
-    id: usize,
-    widget_pod: WidgetPod<ImageData, Gif>,
-    origin: Point,
-    data: ImageData,
-}
-
-impl Image {
-    fn adjust_origin(&mut self, images_area: &Size, delta: Vec2) {
-        // Calculate the new origin in relation to the surface's image display area
-        let mut origin = self.origin - self.data.origin + delta;
-        // Make sure there remains at least 1px visible on each axis
-        let min_x = -(self.widget_pod.widget().width() as f64) + 1.0;
-        let min_y = -(self.widget_pod.widget().height() as f64) + 1.0;
-        let max_x = images_area.width - 1.0;
-        let max_y = images_area.height - 1.0;
-        origin.x = origin.x.max(min_x).min(max_x);
-        origin.y = origin.y.max(min_y).min(max_y);
-        // Split the new origin between surface images area origin and image origin
-        if origin.x < 0.0 {
-            self.origin.x = 0.0;
-            self.data.origin.x = origin.x.abs();
-        } else {
-            self.origin.x = origin.x;
-            self.data.origin.x = 0.0;
-        };
-        if origin.y < 0.0 {
-            self.origin.y = 0.0;
-            self.data.origin.y = origin.y.abs();
-        } else {
-            self.origin.y = origin.y;
-            self.data.origin.y = 0.0;
-        };
-    }
-}
-
-pub struct Border {
-    width: f64,
-    brush: PaintBrush,
-}
-
-impl Border {
-    pub fn new(width: f64, brush: PaintBrush) -> Border {
-        Border {
-            width: width,
-            brush: brush,
-        }
-    }
-}
-
-struct Drag {
-    start: Point,
-    image_id: usize,
 }
 
 impl Surface {
-    pub fn new() -> Surface {
+    pub fn new(project: Project) -> Surface {
+        let mut images = Vec::new();
+        for project_image in project.images() {
+            images.push(Image::new(project_image));
+        }
         Surface {
-            next_id: 0,
-            images: Vec::new(),
-            images_area: Size::ZERO,
+            project: project,
+            images: images,
+            images_area_size: Size::ZERO,
             border: None,
             drag: None,
             active_image: None,
-            layers: Vec::new(),
         }
     }
 
     pub fn set_border(&mut self, border: Option<Border>) {
         self.border = border;
-    }
-
-    pub fn add(&mut self, filename: &str) {
-        self.images.push(Image {
-            id: self.next_id,
-            widget_pod: WidgetPod::new(Gif::new(filename)),
-            origin: Point::ZERO,
-            data: ImageData {
-                origin: Point::ZERO,
-                selected: false,
-            },
-        });
-        self.layers.push(self.next_id);
-        self.next_id += 1;
     }
 }
 
@@ -135,7 +69,7 @@ impl Widget<u32> for Surface {
                         self.active_image = None;
                     }
                     // Locate the topmost layer that gets hit
-                    for &id in self.layers.iter().rev() {
+                    for &id in self.project.layers().iter().rev() {
                         let image = &mut self.images[id];
                         let rect = image.widget_pod.get_layout_rect();
                         if rect.contains(mouse_event.pos) {
@@ -144,8 +78,8 @@ impl Widget<u32> for Surface {
                             image.data.selected = true;
                             // Start the drag event
                             self.drag = Some(Drag {
-                                start: mouse_event.pos,
                                 image_id: image.id,
+                                start: mouse_event.pos,
                             });
                             // Send the event to the image as well
                             image.widget_pod.event(ctx, event, &mut image.data, env);
@@ -157,7 +91,10 @@ impl Widget<u32> for Surface {
             Event::MouseMoved(mouse_event) => {
                 if let Some(drag) = &mut self.drag {
                     if let Some(image) = self.images.iter_mut().find(|image| image.id == drag.image_id) {
-                        image.adjust_origin(&self.images_area, mouse_event.pos - drag.start);
+                        self.project.set_origin(
+                            image.id,
+                            image.adjust_origin(&self.images_area_size, mouse_event.pos - drag.start),
+                        );
                         drag.start = mouse_event.pos;
                     }
                 }
@@ -166,7 +103,10 @@ impl Widget<u32> for Surface {
                 if mouse_event.button.is_left() {
                     if let Some(drag) = &self.drag {
                         let image = &mut self.images[drag.image_id];
-                        image.adjust_origin(&self.images_area, mouse_event.pos - drag.start);
+                        self.project.set_origin(
+                            image.id,
+                            image.adjust_origin(&self.images_area_size, mouse_event.pos - drag.start),
+                        );
                         self.drag = None;
                     }
                 }
@@ -174,22 +114,12 @@ impl Widget<u32> for Surface {
             Event::KeyUp(key_event) => match key_event.key_code {
                 KeyCode::PageUp => {
                     if let Some(active_image) = self.active_image {
-                        if let Some(layer) = self.layers.iter().position(|&id| id == active_image) {
-                            if layer < self.layers.len() - 1 {
-                                self.layers[layer] = self.layers[layer + 1];
-                                self.layers[layer + 1] = active_image;
-                            }
-                        }
+                        self.project.shift_layer(active_image, 1);
                     }
                 }
                 KeyCode::PageDown => {
                     if let Some(active_image) = self.active_image {
-                        if let Some(layer) = self.layers.iter().position(|&id| id == active_image) {
-                            if layer > 0 {
-                                self.layers[layer] = self.layers[layer - 1];
-                                self.layers[layer - 1] = active_image;
-                            }
-                        }
+                        self.project.shift_layer(active_image, -1);
                     }
                 }
                 _ => (),
@@ -220,12 +150,12 @@ impl Widget<u32> for Surface {
             None => 0.0,
         };
         let images_area = bc.shrink((2.0 * border_width, 2.0 * border_width)).loosen();
-        self.images_area = images_area.max();
+        self.images_area_size = images_area.max();
 
         // Set the layout for all the images
         for image in self.images.iter_mut() {
-            let origin = image.origin + Vec2::new(border_width, border_width);
-            let area = images_area.shrink(image.origin.to_vec2().to_size());
+            let origin = image.images_area_origin + Vec2::new(border_width, border_width);
+            let area = images_area.shrink(image.images_area_origin.to_vec2().to_size());
             let size = image.widget_pod.layout(ctx, &area, &image.data, env);
             image.widget_pod.set_layout_rect(Rect::from_origin_size(origin, size));
         }
@@ -251,9 +181,89 @@ impl Widget<u32> for Surface {
         }
 
         // Paint all the images
-        for &id in self.layers.iter() {
+        for &id in self.project.layers().iter() {
             let image = &mut self.images[id];
             image.widget_pod.paint_with_offset(ctx, &image.data, env);
         }
     }
+}
+
+struct Image {
+    id: usize,
+    widget_pod: WidgetPod<ImageData, Gif>,
+    images_area_origin: Point,
+    data: ImageData,
+}
+
+impl Image {
+    fn new(project_image: &ProjectImage) -> Image {
+        let (images_area_origin, image_origin) = Self::split_origin(project_image.origin());
+        Image {
+            id: project_image.id(),
+            widget_pod: WidgetPod::new(Gif::new(project_image.path())),
+            images_area_origin: images_area_origin,
+            data: ImageData {
+                origin: image_origin,
+                selected: false,
+            },
+        }
+    }
+
+    /// Split the origin between surface images area origin and image origin
+    fn split_origin(origin: &Point) -> (Point, Point) {
+        let mut images_area_origin = Point::ZERO;
+        let mut image_origin = Point::ZERO;
+        if origin.x < 0.0 {
+            images_area_origin.x = 0.0;
+            image_origin.x = origin.x.abs();
+        } else {
+            images_area_origin.x = origin.x;
+            image_origin.x = 0.0;
+        }
+        if origin.y < 0.0 {
+            images_area_origin.y = 0.0;
+            image_origin.y = origin.y.abs();
+        } else {
+            images_area_origin.y = origin.y;
+            image_origin.y = 0.0;
+        }
+        (images_area_origin, image_origin)
+    }
+
+    fn adjust_origin(&mut self, images_area: &Size, delta: Vec2) -> Point {
+        // Calculate the new origin in relation to the surface's image display area
+        let mut origin = self.images_area_origin - self.data.origin + delta;
+        // Make sure there remains at least 1px visible on each axis
+        let min_x = -(self.widget_pod.widget().width() as f64) + 1.0;
+        let min_y = -(self.widget_pod.widget().height() as f64) + 1.0;
+        let max_x = images_area.width - 1.0;
+        let max_y = images_area.height - 1.0;
+        origin.x = origin.x.max(min_x).min(max_x);
+        origin.y = origin.y.max(min_y).min(max_y);
+        let origin = origin.to_point();
+        // Split the new origin between surface images area origin and image origin
+        let (images_area_origin, image_origin) = Self::split_origin(&origin);
+        self.images_area_origin = images_area_origin;
+        self.data.origin = image_origin;
+        origin
+    }
+}
+
+pub struct Border {
+    width: f64,
+    brush: PaintBrush,
+}
+
+impl Border {
+    pub fn new(width: f64, brush: PaintBrush) -> Border {
+        Border {
+            width: width,
+            brush: brush,
+        }
+    }
+}
+
+struct Drag {
+    image_id: usize,
+    start: Point,
 }

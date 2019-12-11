@@ -17,23 +17,45 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::fs::read_dir;
+
 use druid::piet::Color;
 use druid::widget::Flex;
 use druid::Widget;
 
 use super::{Border, Stats, Surface};
+use crate::project::Project;
 
 pub fn ui_root() -> impl Widget<u32> {
     let mut col = Flex::column();
 
     col.add_child(Stats::new(), 0.0);
 
-    let mut surface = Surface::new();
+    let mut project = Project::new();
+    project.add("fw.gif".into());
+    project.add("fw-alpha.gif".into());
+
+    //load_x(&mut project);
+
+    let mut surface = Surface::new(project);
     surface.set_border(Some(Border::new(50.0, Color::rgb8(47, 98, 237).into())));
-    surface.add("fw.gif");
-    //surface.add("fw-alpha.gif");
 
     col.add_child(surface, 1.0);
 
     col
+}
+
+fn load_x(project: &mut Project) {
+    let dir = read_dir("x").expect("Failed read_dir");
+    for entry in dir {
+        let entry = entry.expect("Entry failed");
+        let path = entry.path();
+        if !path.is_dir() {
+            if let Some(ext) = path.extension() {
+                if ext == "gif" {
+                    project.add(path);
+                }
+            }
+        }
+    }
 }
