@@ -34,6 +34,7 @@ use rgb::*;
 #[derive(Data, Clone)]
 pub struct ImageData {
     pub origin: Point,
+    pub selected: bool,
 }
 
 pub struct Gif {
@@ -206,7 +207,7 @@ impl Widget<ImageData> for Gif {
 
         // If active, paint a border on top of the edge of the image
         // TODO: What if it's a 1px image?
-        if base_state.is_active() {
+        if data.selected {
             let brush = ctx.render_ctx.solid_brush(Color::rgb8(245, 132, 66));
             let width = 1.0;
 

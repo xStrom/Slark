@@ -112,7 +112,10 @@ impl Surface {
             id: self.next_id,
             widget_pod: WidgetPod::new(Gif::new(filename)),
             origin: Point::ZERO,
-            data: ImageData { origin: Point::ZERO },
+            data: ImageData {
+                origin: Point::ZERO,
+                selected: false,
+            },
         });
         self.layers.push(self.next_id);
         self.next_id += 1;
@@ -128,7 +131,7 @@ impl Widget<u32> for Surface {
                     ctx.request_focus();
                     // Always clear the currently active image
                     if let Some(active_image) = self.active_image {
-                        self.images[active_image].widget_pod.set_active(false);
+                        self.images[active_image].data.selected = false;
                         self.active_image = None;
                     }
                     // Locate the topmost layer that gets hit
@@ -138,7 +141,7 @@ impl Widget<u32> for Surface {
                         if rect.contains(mouse_event.pos) {
                             // Set active image
                             self.active_image = Some(image.id);
-                            image.widget_pod.set_active(true);
+                            image.data.selected = true;
                             // Start the drag event
                             self.drag = Some(Drag {
                                 start: mouse_event.pos,
