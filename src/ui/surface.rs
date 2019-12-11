@@ -17,10 +17,13 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::path::PathBuf;
+
 use druid::kurbo::{Point, Rect, Size, Vec2};
 use druid::piet::{PaintBrush, RenderContext};
 use druid::{
-    BaseState, BoxConstraints, Env, Event, EventCtx, KeyCode, LayoutCtx, PaintCtx, UpdateCtx, Widget, WidgetPod,
+    commands, BaseState, BoxConstraints, Command, Env, Event, EventCtx, FileInfo, KeyCode, LayoutCtx, PaintCtx,
+    UpdateCtx, Widget, WidgetPod,
 };
 
 use crate::project::{Image as ProjectImage, Project};
@@ -49,6 +52,19 @@ impl Surface {
             drag: None,
             active_image: None,
         }
+    }
+
+    pub fn set_project(&mut self, project: Project) {
+        self.project = project;
+        self.images = {
+            let mut images = Vec::new();
+            for project_image in self.project.images() {
+                images.push(Image::new(project_image));
+            }
+            images
+        };
+        self.drag = None;
+        self.active_image = None;
     }
 
     pub fn set_border(&mut self, border: Option<Border>) {
@@ -120,6 +136,35 @@ impl Widget<u32> for Surface {
                 KeyCode::PageDown => {
                     if let Some(active_image) = self.active_image {
                         self.project.shift_layer(active_image, -1);
+                    }
+                }
+                KeyCode::KeyS => {
+                    if key_event.mods.ctrl {
+                        ctx.submit_command(
+                            Command::new(commands::SHOW_SAVE_PANEL, self.project.file_dialog_options()),
+                            None,
+                        );
+                    }
+                }
+                KeyCode::KeyO => {
+                    if key_event.mods.ctrl {
+                        ctx.submit_command(
+                            Command::new(commands::SHOW_OPEN_PANEL, self.project.file_dialog_options()),
+                            None,
+                        );
+                    }
+                }
+                _ => (),
+            },
+            Event::Command(command) => match command.selector {
+                commands::SAVE_FILE => {
+                    if let Some(info) = command.get_object::<FileInfo>() {
+                        self.project.save(info.path());
+                    }
+                }
+                commands::OPEN_FILE => {
+                    if let Some(info) = command.get_object::<FileInfo>() {
+                        self.set_project(Project::open(PathBuf::from(info.path())));
                     }
                 }
                 _ => (),
