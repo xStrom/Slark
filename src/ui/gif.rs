@@ -105,18 +105,9 @@ impl Gif {
         self.height
     }
 
+    #[rustfmt::skip]
     fn convert_pixels<T: From<RGB8>>(palette_bytes: &[u8]) -> Vec<T> {
-        palette_bytes
-            .chunks(3)
-            .map(|byte| {
-                RGB8 {
-                    r: byte[0],
-                    g: byte[1],
-                    b: byte[2],
-                }
-                .into()
-            })
-            .collect()
+        palette_bytes.chunks(3).map(|byte| {RGB8{r: byte[0], g: byte[1], b: byte[2]}.into()}).collect()
     }
 
     fn current_frame(&mut self, ctx: &mut PaintCtx) -> &Image {
@@ -166,12 +157,10 @@ impl Widget<ImageData> for Gif {
             Event::MouseDown(_) => {
                 // TODO: Get rid of this request_anim_frame here
                 ctx.request_anim_frame();
-                ctx.set_active(true);
-            }
-            Event::MouseUp(_) => {
-                ctx.set_active(false);
             }
             Event::AnimFrame(interval) => {
+                // TODO: Think about clamping it to zero -- comapre how it works.
+                //       There might be underflows with 0-delay GIFs.
                 self.current_delay -= *interval as i64;
                 ctx.request_anim_frame();
                 // When we do fine-grained invalidation,

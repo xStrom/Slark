@@ -19,7 +19,9 @@
 
 use druid::kurbo::{Point, Rect, Size, Vec2};
 use druid::piet::{PaintBrush, RenderContext};
-use druid::{BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget, WidgetPod};
+use druid::{
+    BaseState, BoxConstraints, Env, Event, EventCtx, KeyCode, LayoutCtx, PaintCtx, UpdateCtx, Widget, WidgetPod,
+};
 
 use crate::ui::gif::{Gif, ImageData};
 
@@ -29,6 +31,8 @@ pub struct Surface {
     images_area: Size,
     border: Option<Border>,
     drag: Option<Drag>,
+    active_image: Option<usize>,
+    layers: Vec<usize>,
 }
 
 struct Image {
@@ -94,6 +98,8 @@ impl Surface {
             images_area: Size::ZERO,
             border: None,
             drag: None,
+            active_image: None,
+            layers: Vec::new(),
         }
     }
 
@@ -108,6 +114,7 @@ impl Surface {
             origin: Point::ZERO,
             data: ImageData { origin: Point::ZERO },
         });
+        self.layers.push(self.next_id);
         self.next_id += 1;
     }
 }
@@ -117,9 +124,21 @@ impl Widget<u32> for Surface {
         match event {
             Event::MouseDown(mouse_event) => {
                 if mouse_event.button.is_left() {
-                    for image in self.images.iter_mut() {
+                    // TODO: Move this request elsewhere?
+                    ctx.request_focus();
+                    // Always clear the currently active image
+                    if let Some(active_image) = self.active_image {
+                        self.images[active_image].widget_pod.set_active(false);
+                        self.active_image = None;
+                    }
+                    // Locate the topmost layer that gets hit
+                    for &id in self.layers.iter().rev() {
+                        let image = &mut self.images[id];
                         let rect = image.widget_pod.get_layout_rect();
                         if rect.contains(mouse_event.pos) {
+                            // Set active image
+                            self.active_image = Some(image.id);
+                            image.widget_pod.set_active(true);
                             // Start the drag event
                             self.drag = Some(Drag {
                                 start: mouse_event.pos,
@@ -143,21 +162,42 @@ impl Widget<u32> for Surface {
             Event::MouseUp(mouse_event) => {
                 if mouse_event.button.is_left() {
                     if let Some(drag) = &self.drag {
-                        if let Some(image) = self.images.iter_mut().find(|image| image.id == drag.image_id) {
-                            image.adjust_origin(&self.images_area, mouse_event.pos - drag.start);
-                            // Send the event to the image as well
-                            image.widget_pod.event(ctx, event, &mut image.data, env);
-                        }
+                        let image = &mut self.images[drag.image_id];
+                        image.adjust_origin(&self.images_area, mouse_event.pos - drag.start);
                         self.drag = None;
                     }
                 }
             }
-            _ => {
+            Event::KeyUp(key_event) => match key_event.key_code {
+                KeyCode::PageUp => {
+                    if let Some(active_image) = self.active_image {
+                        if let Some(layer) = self.layers.iter().position(|&id| id == active_image) {
+                            if layer < self.layers.len() - 1 {
+                                self.layers[layer] = self.layers[layer + 1];
+                                self.layers[layer + 1] = active_image;
+                            }
+                        }
+                    }
+                }
+                KeyCode::PageDown => {
+                    if let Some(active_image) = self.active_image {
+                        if let Some(layer) = self.layers.iter().position(|&id| id == active_image) {
+                            if layer > 0 {
+                                self.layers[layer] = self.layers[layer - 1];
+                                self.layers[layer - 1] = active_image;
+                            }
+                        }
+                    }
+                }
+                _ => (),
+            },
+            Event::AnimFrame(_) => {
                 // Pass the event to all the images
                 for image in self.images.iter_mut() {
                     image.widget_pod.event(ctx, event, &mut image.data, env);
                 }
             }
+            _ => (),
         }
     }
 
@@ -208,7 +248,8 @@ impl Widget<u32> for Surface {
         }
 
         // Paint all the images
-        for image in self.images.iter_mut() {
+        for &id in self.layers.iter() {
+            let image = &mut self.images[id];
             image.widget_pod.paint_with_offset(ctx, &image.data, env);
         }
     }
