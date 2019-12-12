@@ -19,7 +19,9 @@
 
 use druid::kurbo::Size;
 use druid::widget::DynLabel;
-use druid::{BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget};
+use druid::{
+    commands, BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget,
+};
 
 pub struct Stats {
     frame_times: [u64; Stats::FRAME_TIME_COUNT],
@@ -77,9 +79,12 @@ impl Stats {
 impl Widget<u32> for Stats {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u32, _env: &Env) {
         match event {
-            Event::MouseDown(_) => {
-                ctx.request_anim_frame();
-            }
+            Event::Command(command) => match command.selector {
+                commands::WINDOW_CREATED => {
+                    ctx.request_anim_frame();
+                }
+                _ => (),
+            },
             Event::AnimFrame(interval) => {
                 self.add_frame_time(*interval);
                 ctx.request_anim_frame();

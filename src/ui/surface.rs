@@ -54,12 +54,16 @@ impl Surface {
         }
     }
 
-    pub fn set_project(&mut self, project: Project) {
+    pub fn set_project(&mut self, project: Project, ctx: &mut EventCtx, env: &Env) {
         self.project = project;
         self.images = {
+            // TODO: Use a different bespoke command?
+            let event_window_created = Event::Command(Command::from(commands::WINDOW_CREATED));
             let mut images = Vec::new();
             for project_image in self.project.images() {
-                images.push(Image::new(project_image));
+                let mut img = Image::new(project_image);
+                img.widget_pod.event(ctx, &event_window_created, &mut img.data, env);
+                images.push(img);
             }
             images
         };
@@ -157,6 +161,12 @@ impl Widget<u32> for Surface {
                 _ => (),
             },
             Event::Command(command) => match command.selector {
+                commands::WINDOW_CREATED => {
+                    // Pass the event to all the images
+                    for image in self.images.iter_mut() {
+                        image.widget_pod.event(ctx, event, &mut image.data, env);
+                    }
+                }
                 commands::SAVE_FILE => {
                     if let Some(info) = command.get_object::<FileInfo>() {
                         self.project.save(info.path());
@@ -164,7 +174,7 @@ impl Widget<u32> for Surface {
                 }
                 commands::OPEN_FILE => {
                     if let Some(info) = command.get_object::<FileInfo>() {
-                        self.set_project(Project::open(PathBuf::from(info.path())));
+                        self.set_project(Project::open(PathBuf::from(info.path())), ctx, env);
                     }
                 }
                 _ => (),
