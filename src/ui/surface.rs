@@ -1,5 +1,5 @@
 /*
-    Copyright 2019 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2019-2020 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 
@@ -22,8 +22,8 @@ use std::path::PathBuf;
 use druid::kurbo::{Point, Rect, Size, Vec2};
 use druid::piet::{PaintBrush, RenderContext};
 use druid::{
-    commands, BaseState, BoxConstraints, Command, Env, Event, EventCtx, FileInfo, KeyCode, LayoutCtx, PaintCtx,
-    UpdateCtx, Widget, WidgetPod,
+    commands, BoxConstraints, Command, Env, Event, EventCtx, FileInfo, KeyCode, LayoutCtx, LifeCycle, LifeCycleCtx,
+    PaintCtx, UpdateCtx, Widget, WidgetPod,
 };
 
 use crate::project::{Image as ProjectImage, Project};
@@ -54,16 +54,12 @@ impl Surface {
         }
     }
 
-    pub fn set_project(&mut self, project: Project, ctx: &mut EventCtx, env: &Env) {
+    pub fn set_project(&mut self, project: Project) {
         self.project = project;
         self.images = {
-            // TODO: Use a different bespoke command?
-            let event_window_created = Event::Command(Command::from(commands::WINDOW_CREATED));
             let mut images = Vec::new();
             for project_image in self.project.images() {
-                let mut img = Image::new(project_image);
-                img.widget_pod.event(ctx, &event_window_created, &mut img.data, env);
-                images.push(img);
+                images.push(Image::new(project_image));
             }
             images
         };
@@ -76,8 +72,8 @@ impl Surface {
     }
 }
 
-impl Widget<u32> for Surface {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u32, env: &Env) {
+impl Widget<u64> for Surface {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u64, env: &Env) {
         match event {
             Event::MouseDown(mouse_event) => {
                 if mouse_event.button.is_left() {
@@ -91,7 +87,7 @@ impl Widget<u32> for Surface {
                     // Locate the topmost layer that gets hit
                     for &id in self.project.layers().iter().rev() {
                         let image = &mut self.images[id];
-                        let rect = image.widget_pod.get_layout_rect();
+                        let rect = image.widget_pod.layout_rect();
                         if rect.contains(mouse_event.pos) {
                             // Set active image
                             self.active_image = Some(image.id);
@@ -116,6 +112,7 @@ impl Widget<u32> for Surface {
                             image.adjust_origin(&self.images_area_size, mouse_event.pos - drag.start),
                         );
                         drag.start = mouse_event.pos;
+                        ctx.request_layout();
                     }
                 }
             }
@@ -161,42 +158,37 @@ impl Widget<u32> for Surface {
                 _ => (),
             },
             Event::Command(command) => match command.selector {
-                commands::WINDOW_CREATED => {
-                    // Pass the event to all the images
-                    for image in self.images.iter_mut() {
-                        image.widget_pod.event(ctx, event, &mut image.data, env);
-                    }
-                }
                 commands::SAVE_FILE => {
-                    if let Some(info) = command.get_object::<FileInfo>() {
+                    if let Ok(info) = command.get_object::<FileInfo>() {
                         self.project.save(info.path());
                     }
                 }
                 commands::OPEN_FILE => {
-                    if let Some(info) = command.get_object::<FileInfo>() {
-                        self.set_project(Project::open(PathBuf::from(info.path())), ctx, env);
+                    if let Ok(info) = command.get_object::<FileInfo>() {
+                        self.set_project(Project::open(PathBuf::from(info.path())));
                     }
                 }
                 _ => (),
             },
-            Event::AnimFrame(_) => {
-                // Pass the event to all the images
-                for image in self.images.iter_mut() {
-                    image.widget_pod.event(ctx, event, &mut image.data, env);
-                }
-            }
             _ => (),
         }
     }
 
-    fn update(&mut self, ctx: &mut UpdateCtx, _old_data: Option<&u32>, _data: &u32, env: &Env) {
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &u64, env: &Env) {
+        // Pass the lifecycle to all the images
+        for image in self.images.iter_mut() {
+            image.widget_pod.lifecycle(ctx, event, &image.data, env);
+        }
+    }
+
+    fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &u64, _data: &u64, env: &Env) {
         // Pass the update to all the images
         for image in self.images.iter_mut() {
             image.widget_pod.update(ctx, &image.data, env);
         }
     }
 
-    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u32, env: &Env) -> Size {
+    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u64, env: &Env) -> Size {
         bc.debug_check("Surface");
 
         // Reserve border area for the surface to make sure things work well
@@ -219,9 +211,9 @@ impl Widget<u32> for Surface {
         bc.max()
     }
 
-    fn paint(&mut self, ctx: &mut PaintCtx, base_state: &BaseState, _data: &u32, env: &Env) {
+    fn paint(&mut self, ctx: &mut PaintCtx, _data: &u64, env: &Env) {
         // Clip the overflow
-        let size = base_state.size();
+        let size = ctx.size();
         //ctx.render_ctx.clip(Rect::from_origin_size(Point::ZERO, size));
 
         // Paint border, if there is one
@@ -305,8 +297,8 @@ impl Image {
 }
 
 pub struct Border {
-    width: f64,
-    brush: PaintBrush,
+    pub width: f64,
+    pub brush: PaintBrush,
 }
 
 impl Border {

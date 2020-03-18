@@ -1,5 +1,5 @@
 /*
-    Copyright 2019 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2019-2020 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 
@@ -26,19 +26,20 @@ use druid::Widget;
 use super::{Border, Stats, Surface};
 use crate::project::Project;
 
-pub fn ui_root() -> impl Widget<u32> {
+pub fn ui_root() -> impl Widget<u64> {
     let mut col = Flex::column();
 
     col.add_child(Stats::new(), 0.0);
 
     let mut project = Project::new();
     project.add("fw.gif".into());
-    project.add("fw-alpha.gif".into());
+    //project.add("fw-alpha.gif".into());
+    //project.add("large.gif".into());
 
     //load_x(&mut project);
 
     let mut surface = Surface::new(project);
-    surface.set_border(Some(Border::new(50.0, Color::rgb8(47, 98, 237).into())));
+    surface.set_border(Some(Border::new(0.0, Color::rgb8(47, 98, 237).into())));
 
     col.add_child(surface, 1.0);
 
@@ -46,7 +47,7 @@ pub fn ui_root() -> impl Widget<u32> {
 }
 
 fn load_x(project: &mut Project) {
-    let dir = read_dir("x").expect("Failed read_dir");
+    let dir = read_dir("y").expect("Failed read_dir");
     for entry in dir {
         let entry = entry.expect("Entry failed");
         let path = entry.path();

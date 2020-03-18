@@ -1,5 +1,5 @@
 /*
-    Copyright 2019 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2019-2020 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 
@@ -18,16 +18,15 @@
 */
 
 use druid::kurbo::Size;
-use druid::widget::DynLabel;
-use druid::{
-    commands, BaseState, BoxConstraints, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget,
-};
+use druid::widget::Label;
+use druid::{BoxConstraints, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, UpdateCtx, Widget};
 
 pub struct Stats {
     frame_times: [u64; Stats::FRAME_TIME_COUNT],
     frame_time_index: usize,
+    fps: u64,
     initializing: bool,
-    label_fps: DynLabel<u64>,
+    label_fps: Label<u64>,
 }
 
 impl Stats {
@@ -37,8 +36,9 @@ impl Stats {
         Stats {
             frame_times: [0; Stats::FRAME_TIME_COUNT],
             frame_time_index: 0,
+            fps: 0,
             initializing: true,
-            label_fps: DynLabel::new(|data, _| format!("FPS: {}", *data)),
+            label_fps: Label::new("FPS: 0"),
         }
     }
 
@@ -67,42 +67,47 @@ impl Stats {
         } else {
             0
         };
-        let avg_fps = if avg_frame_time > 0 {
+        if avg_frame_time > 0 {
             1_000_000_000 / avg_frame_time
         } else {
             0
-        };
-        avg_fps
+        }
     }
 }
 
-impl Widget<u32> for Stats {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u32, _env: &Env) {
+impl Widget<u64> for Stats {
+    fn event(&mut self, _ctx: &mut EventCtx, _event: &Event, _data: &mut u64, _env: &Env) {}
+
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &u64, env: &Env) {
         match event {
-            Event::Command(command) => match command.selector {
-                commands::WINDOW_CREATED => {
-                    ctx.request_anim_frame();
-                }
-                _ => (),
-            },
-            Event::AnimFrame(interval) => {
-                self.add_frame_time(*interval);
+            LifeCycle::WidgetAdded => {
                 ctx.request_anim_frame();
-                // When we do fine-grained invalidation,
-                // no doubt this will be required:
-                //ctx.invalidate();
+                self.label_fps.lifecycle(ctx, event, &self.fps, env);
+            }
+            LifeCycle::AnimFrame(interval) => {
+                ctx.request_anim_frame();
+                self.add_frame_time(*interval);
+                let fps = self.average_fps();
+                if self.fps != fps {
+                    self.fps = fps;
+                    self.label_fps.set_text(format!("FPS: {}", self.fps));
+                    ctx.request_layout();
+                }
             }
             _ => (),
         }
     }
 
-    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: Option<&u32>, _data: &u32, _env: &Env) {}
+    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &u64, _data: &u64, _env: &Env) {}
 
-    fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u32, _env: &Env) -> Size {
-        bc.constrain((100.0, 50.0))
+    fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u64, _env: &Env) -> Size {
+        bc.debug_check("Stats");
+        //let label_bc = bc.loosen();
+        //let label_size = self.label_fps.layout(ctx, &label_bc, &self.fps, env);
+        bc.constrain((70.0, 20.0))
     }
 
-    fn paint(&mut self, paint_ctx: &mut PaintCtx, _base_state: &BaseState, _data: &u32, _env: &Env) {
-        self.label_fps.paint(paint_ctx, _base_state, &self.average_fps(), _env);
+    fn paint(&mut self, ctx: &mut PaintCtx, _data: &u64, env: &Env) {
+        self.label_fps.paint(ctx, &self.fps, env);
     }
 }

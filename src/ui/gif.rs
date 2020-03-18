@@ -1,5 +1,5 @@
 /*
-    Copyright 2019 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2019-2020 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 
@@ -25,7 +25,9 @@ use std::time::Instant;
 
 use druid::kurbo::{Line, Point, Rect, Size};
 use druid::piet::{Color, Image, ImageFormat, InterpolationMode, RenderContext};
-use druid::{commands, BaseState, BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, PaintCtx, UpdateCtx, Widget};
+use druid::{
+    BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, UpdateCtx, Widget,
+};
 
 use gif::{Decoder, SetParameter};
 use gif_dispose::*;
@@ -154,37 +156,36 @@ impl Gif {
 }
 
 impl Widget<ImageData> for Gif {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut ImageData, _env: &Env) {
+    fn event(&mut self, _ctx: &mut EventCtx, _event: &Event, _data: &mut ImageData, _env: &Env) {}
+
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &ImageData, _env: &Env) {
         match event {
-            Event::Command(command) => match command.selector {
-                commands::WINDOW_CREATED => {
-                    ctx.request_anim_frame();
-                }
-                _ => (),
-            },
-            Event::AnimFrame(interval) => {
+            LifeCycle::WidgetAdded => {
+                ctx.request_anim_frame();
+            }
+            LifeCycle::AnimFrame(interval) => {
                 // TODO: Think about clamping it to zero -- comapre how it works.
                 //       There might be underflows with 0-delay GIFs.
                 self.current_delay -= *interval as i64;
                 ctx.request_anim_frame();
                 // When we do fine-grained invalidation,
                 // no doubt this will be required:
-                //ctx.invalidate();
+                //ctx.request_paint();
             }
             _ => (),
         }
     }
 
-    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: Option<&ImageData>, _data: &ImageData, _env: &Env) {}
+    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &ImageData, _data: &ImageData, _env: &Env) {}
 
     fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &ImageData, _env: &Env) -> Size {
         bc.debug_check("Gif");
         bc.constrain((self.width as f64 - data.origin.x, self.height as f64 - data.origin.y))
     }
 
-    fn paint(&mut self, ctx: &mut PaintCtx, base_state: &BaseState, data: &ImageData, _env: &Env) {
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &ImageData, _env: &Env) {
         // Determine the area of the frame to paint
-        let size = base_state.size();
+        let size = ctx.size();
         let src_rect = Rect::from_origin_size(data.origin, size);
         let dst_rect = Rect::from_origin_size(Point::ZERO, size);
 
@@ -192,7 +193,7 @@ impl Widget<ImageData> for Gif {
             // Still more waiting to do, just paint the current frame
             let img = self.current_frame(ctx);
             ctx.render_ctx
-                .draw_image(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+                .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
         } else {
             // Paint until there's a delay specified
             let start_frame = self.current_frame;
@@ -200,7 +201,7 @@ impl Widget<ImageData> for Gif {
                 // Paint the next frame
                 let img = self.next_frame(ctx);
                 ctx.render_ctx
-                    .draw_image(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+                    .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
                 // Detect infinite loops due to GIFs with only 0-delay frames
                 if self.current_frame == start_frame {
                     break;
