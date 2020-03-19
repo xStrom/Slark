@@ -17,9 +17,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use druid::kurbo::Size;
+use druid::widget::prelude::*;
 use druid::widget::Label;
-use druid::{BoxConstraints, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, UpdateCtx, Widget};
+use druid::Data;
 
 pub struct Stats {
     frame_times: [u64; Stats::FRAME_TIME_COUNT],
@@ -75,10 +75,10 @@ impl Stats {
     }
 }
 
-impl Widget<u64> for Stats {
-    fn event(&mut self, _ctx: &mut EventCtx, _event: &Event, _data: &mut u64, _env: &Env) {}
+impl<T: Data> Widget<T> for Stats {
+    fn event(&mut self, _ctx: &mut EventCtx, _event: &Event, _data: &mut T, _env: &Env) {}
 
-    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &u64, env: &Env) {
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &T, env: &Env) {
         match event {
             LifeCycle::WidgetAdded => {
                 ctx.request_anim_frame();
@@ -98,16 +98,16 @@ impl Widget<u64> for Stats {
         }
     }
 
-    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &u64, _data: &u64, _env: &Env) {}
+    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &T, _data: &T, _env: &Env) {}
 
-    fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u64, _env: &Env) -> Size {
+    fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &T, _env: &Env) -> Size {
         bc.debug_check("Stats");
         //let label_bc = bc.loosen();
         //let label_size = self.label_fps.layout(ctx, &label_bc, &self.fps, env);
         bc.constrain((70.0, 20.0))
     }
 
-    fn paint(&mut self, ctx: &mut PaintCtx, _data: &u64, env: &Env) {
+    fn paint(&mut self, ctx: &mut PaintCtx, _data: &T, env: &Env) {
         self.label_fps.paint(ctx, &self.fps, env);
     }
 }

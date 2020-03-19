@@ -19,12 +19,10 @@
 
 use std::path::PathBuf;
 
-use druid::kurbo::{Point, Rect, Size, Vec2};
+use druid::kurbo::{Point, Rect, Vec2};
 use druid::piet::{PaintBrush, RenderContext};
-use druid::{
-    commands, BoxConstraints, Command, Env, Event, EventCtx, FileInfo, KeyCode, LayoutCtx, LifeCycle, LifeCycleCtx,
-    PaintCtx, UpdateCtx, Widget, WidgetPod,
-};
+use druid::widget::prelude::*;
+use druid::{commands, Command, FileInfo, KeyCode, WidgetPod};
 
 use crate::project::{Image as ProjectImage, Project};
 use crate::ui::gif::{Gif, ImageData};

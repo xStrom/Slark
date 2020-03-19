@@ -23,11 +23,10 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
 
-use druid::kurbo::{Line, Point, Rect, Size};
+use druid::kurbo::{Line, Point, Rect};
 use druid::piet::{Color, Image, ImageFormat, InterpolationMode, RenderContext};
-use druid::{
-    BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, UpdateCtx, Widget,
-};
+use druid::widget::prelude::*;
+use druid::Data;
 
 use gif::{Decoder, SetParameter};
 use gif_dispose::*;
