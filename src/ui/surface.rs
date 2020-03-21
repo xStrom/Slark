@@ -75,8 +75,9 @@ impl Widget<u64> for Surface {
         match event {
             Event::MouseDown(mouse_event) => {
                 if mouse_event.button.is_left() {
-                    // TODO: Move this request elsewhere?
+                    // TODO: Move this focus request elsewhere?
                     ctx.request_focus();
+                    ctx.set_active(true);
                     // Always clear the currently active image
                     if let Some(active_image) = self.active_image {
                         self.images[active_image].data.selected = false;
