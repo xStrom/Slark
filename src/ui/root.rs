@@ -20,6 +20,7 @@
 use std::fs::read_dir;
 
 use druid::piet::Color;
+use druid::widget::CrossAxisAlignment;
 use druid::widget::Flex;
 use druid::Widget;
 
@@ -27,9 +28,9 @@ use super::{Border, Stats, Surface};
 use crate::project::Project;
 
 pub fn ui_root() -> impl Widget<u64> {
-    let mut col = Flex::column();
+    let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Start);
 
-    col.add_child(Stats::new(), 0.0);
+    col.add_child(Stats::new());
 
     let mut project = Project::new();
     project.add("fw.gif".into());
@@ -41,7 +42,7 @@ pub fn ui_root() -> impl Widget<u64> {
     let mut surface = Surface::new(project);
     surface.set_border(Some(Border::new(0.0, Color::rgb8(47, 98, 237).into())));
 
-    col.add_child(surface, 1.0);
+    col.add_child(surface);
 
     col
 }
