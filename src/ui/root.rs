@@ -42,7 +42,7 @@ pub fn ui_root() -> impl Widget<u64> {
     let mut surface = Surface::new(project);
     surface.set_border(Some(Border::new(0.0, Color::rgb8(47, 98, 237).into())));
 
-    col.add_child(surface);
+    col.add_flex_child(surface, 1.0);
 
     col
 }

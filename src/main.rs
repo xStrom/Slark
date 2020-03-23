@@ -1,5 +1,5 @@
 /*
-    Copyright 2019 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2019-2020 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 
@@ -27,7 +27,8 @@ mod project;
 fn main() {
     let window = WindowDesc::new(ui_root)
         .title(LocalizedString::new("app_title").with_placeholder("Slark".to_string()))
-        .window_size((1024.0, 768.0));
+        .window_size((1024.0, 768.0))
+        .with_min_size((320.0, 240.0));
     AppLauncher::with_window(window)
         .use_simple_logger()
         .launch(0)
