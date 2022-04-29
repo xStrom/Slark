@@ -21,6 +21,8 @@ use druid::widget::prelude::*;
 use druid::widget::Label;
 use druid::Data;
 
+use druid::Application;
+
 pub struct Stats {
     frame_times: [u64; Stats::FRAME_TIME_COUNT],
     frame_time_index: usize,
@@ -30,7 +32,7 @@ pub struct Stats {
 }
 
 impl Stats {
-    const FRAME_TIME_COUNT: usize = 288;
+    const FRAME_TIME_COUNT: usize = 360;
 
     pub fn new() -> Stats {
         Stats {
@@ -76,21 +78,19 @@ impl Stats {
 }
 
 impl<T: Data> Widget<T> for Stats {
-    fn event(&mut self, _ctx: &mut EventCtx, _event: &Event, _data: &mut T, _env: &Env) {}
-
-    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &T, env: &Env) {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut T, _env: &Env) {
         match event {
-            LifeCycle::WidgetAdded => {
-                ctx.request_anim_frame();
-                self.label_fps.lifecycle(ctx, event, &self.fps, env);
+            Event::MouseDown(_) => {
+                Application::global().quit();
             }
-            LifeCycle::AnimFrame(interval) => {
+            Event::AnimFrame(interval) => {
                 ctx.request_anim_frame();
                 self.add_frame_time(*interval);
                 let fps = self.average_fps();
                 if self.fps != fps {
                     self.fps = fps;
                     self.label_fps.set_text(format!("FPS: {}", self.fps));
+                    ctx.request_update();
                     ctx.request_layout();
                 }
             }
@@ -98,12 +98,24 @@ impl<T: Data> Widget<T> for Stats {
         }
     }
 
-    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &T, _data: &T, _env: &Env) {}
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &T, env: &Env) {
+        match event {
+            LifeCycle::WidgetAdded => {
+                ctx.request_anim_frame();
+                self.label_fps.lifecycle(ctx, event, &self.fps, env);
+            }
+            _ => (),
+        }
+    }
 
-    fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &T, _env: &Env) -> Size {
+    fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &T, _data: &T, env: &Env) {
+        self.label_fps.update(ctx, &self.fps, &self.fps, env); // We don't care about the data update
+    }
+
+    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &T, env: &Env) -> Size {
         bc.debug_check("Stats");
-        //let label_bc = bc.loosen();
-        //let label_size = self.label_fps.layout(ctx, &label_bc, &self.fps, env);
+        let label_bc = bc.loosen();
+        let label_size = self.label_fps.layout(ctx, &label_bc, &self.fps, env);
         bc.constrain((70.0, 20.0))
     }
 

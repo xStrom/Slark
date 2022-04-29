@@ -24,7 +24,7 @@ use std::thread;
 use std::time::Instant;
 
 use druid::kurbo::{Line, Point, Rect};
-use druid::piet::{Color, Image, ImageFormat, InterpolationMode, RenderContext};
+use druid::piet::{Color, ImageFormat, InterpolationMode, RenderContext};
 use druid::widget::prelude::*;
 use druid::Data;
 
@@ -54,8 +54,8 @@ struct FrameSource {
 }
 
 struct Frame {
-    img: druid::piet::Image,
     delay: i64,
+    img: druid::piet::d2d::Bitmap, // TODO: Get druid::piet::Image working for cross-platform support
 }
 
 impl Gif {
@@ -113,7 +113,7 @@ impl Gif {
         palette_bytes.chunks(3).map(|byte| {RGB8{r: byte[0], g: byte[1], b: byte[2]}.into()}).collect()
     }
 
-    fn current_frame(&mut self, ctx: &mut PaintCtx) -> &Image {
+    fn current_frame(&mut self, ctx: &mut PaintCtx) -> &druid::piet::d2d::Bitmap {
         if self.frames.is_empty() {
             self.next_frame(ctx)
         } else {
@@ -121,7 +121,7 @@ impl Gif {
         }
     }
 
-    fn next_frame(&mut self, ctx: &mut PaintCtx) -> &Image {
+    fn next_frame(&mut self, ctx: &mut PaintCtx) -> &druid::piet::d2d::Bitmap {
         if self.source.is_some() {
             let receiver = self.source.as_ref().unwrap();
             if let Ok(source) = receiver.recv() {
@@ -155,14 +155,9 @@ impl Gif {
 }
 
 impl Widget<ImageData> for Gif {
-    fn event(&mut self, _ctx: &mut EventCtx, _event: &Event, _data: &mut ImageData, _env: &Env) {}
-
-    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &ImageData, _env: &Env) {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut ImageData, _env: &Env) {
         match event {
-            LifeCycle::WidgetAdded => {
-                ctx.request_anim_frame();
-            }
-            LifeCycle::AnimFrame(interval) => {
+            Event::AnimFrame(interval) => {
                 // TODO: Think about clamping it to zero -- comapre how it works.
                 //       There might be underflows with 0-delay GIFs.
                 self.current_delay -= *interval as i64;
@@ -170,6 +165,15 @@ impl Widget<ImageData> for Gif {
                 // When we do fine-grained invalidation,
                 // no doubt this will be required:
                 //ctx.request_paint();
+            }
+            _ => (),
+        }
+    }
+
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &ImageData, _env: &Env) {
+        match event {
+            LifeCycle::WidgetAdded => {
+                ctx.request_anim_frame();
             }
             _ => (),
         }

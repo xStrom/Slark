@@ -25,8 +25,10 @@ use ui::ui_root;
 mod project;
 
 fn main() {
-    let window = WindowDesc::new(ui_root)
+    let window = WindowDesc::<u64>::new(ui_root())
         .title(LocalizedString::new("app_title").with_placeholder("Slark".to_string()))
+        //.window_size((400.0, 300.0))
+        //.with_min_size((300.0, 200.0));
         .window_size((1024.0, 768.0))
         .with_min_size((320.0, 240.0));
     AppLauncher::with_window(window)

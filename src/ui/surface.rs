@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use druid::kurbo::{Point, Rect, Vec2};
 use druid::piet::{PaintBrush, RenderContext};
 use druid::widget::prelude::*;
-use druid::{commands, Command, FileInfo, KeyCode, WidgetPod};
+use druid::{commands, Command, FileInfo, KbKey, Target, WidgetPod};
 
 use crate::project::{Image as ProjectImage, Project};
 use crate::ui::gif::{Gif, ImageData};
@@ -72,6 +72,8 @@ impl Surface {
 
 impl Widget<u64> for Surface {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u64, env: &Env) {
+        let mut hackyChildrenAdded = false;
+
         match event {
             Event::MouseDown(mouse_event) => {
                 if mouse_event.button.is_left() {
@@ -103,7 +105,7 @@ impl Widget<u64> for Surface {
                     }
                 }
             }
-            Event::MouseMoved(mouse_event) => {
+            Event::MouseMove(mouse_event) => {
                 if let Some(drag) = &mut self.drag {
                     if let Some(image) = self.images.iter_mut().find(|image| image.id == drag.image_id) {
                         self.project.set_origin(
@@ -127,49 +129,60 @@ impl Widget<u64> for Surface {
                     }
                 }
             }
-            Event::KeyUp(key_event) => match key_event.key_code {
-                KeyCode::PageUp => {
+            Event::KeyUp(key_event) => match &key_event.key {
+                KbKey::PageUp => {
                     if let Some(active_image) = self.active_image {
                         self.project.shift_layer(active_image, 1);
                     }
                 }
-                KeyCode::PageDown => {
+                KbKey::PageDown => {
                     if let Some(active_image) = self.active_image {
                         self.project.shift_layer(active_image, -1);
                     }
                 }
-                KeyCode::KeyS => {
-                    if key_event.mods.ctrl {
-                        ctx.submit_command(
-                            Command::new(commands::SHOW_SAVE_PANEL, self.project.file_dialog_options()),
-                            None,
-                        );
-                    }
-                }
-                KeyCode::KeyO => {
-                    if key_event.mods.ctrl {
-                        ctx.submit_command(
-                            Command::new(commands::SHOW_OPEN_PANEL, self.project.file_dialog_options()),
-                            None,
-                        );
-                    }
-                }
-                _ => (),
-            },
-            Event::Command(command) => match command.selector {
-                commands::SAVE_FILE => {
-                    if let Ok(info) = command.get_object::<FileInfo>() {
-                        self.project.save(info.path());
-                    }
-                }
-                commands::OPEN_FILE => {
-                    if let Ok(info) = command.get_object::<FileInfo>() {
-                        self.set_project(Project::open(PathBuf::from(info.path())));
+                KbKey::Character(ch) => {
+                    if key_event.mods.ctrl() {
+                        match ch.as_str() {
+                            "s" => {
+                                ctx.submit_command(Command::new(
+                                    commands::SHOW_SAVE_PANEL,
+                                    self.project.file_dialog_options(),
+                                    Target::Auto,
+                                ));
+                            }
+                            "o" => {
+                                ctx.submit_command(Command::new(
+                                    commands::SHOW_OPEN_PANEL,
+                                    self.project.file_dialog_options(),
+                                    Target::Auto,
+                                ));
+                            }
+                            _ => (),
+                        }
                     }
                 }
                 _ => (),
             },
+            Event::Command(command) => {
+                if command.is(commands::SAVE_FILE_AS) {
+                    let info = command.get_unchecked(commands::SAVE_FILE_AS);
+                    self.project.save(info.path());
+                } else if command.is(commands::OPEN_FILE) {
+                    let info = command.get_unchecked(commands::OPEN_FILE);
+                    self.set_project(Project::open(PathBuf::from(info.path())));
+                    // Are the following needed?
+                    ctx.children_changed();
+                    hackyChildrenAdded = true;
+                }
+            }
             _ => (),
+        }
+
+        if !hackyChildrenAdded {
+            // Pass the event to all the images
+            for image in self.images.iter_mut() {
+                image.widget_pod.event(ctx, event, &mut image.data, env);
+            }
         }
     }
 
@@ -177,6 +190,12 @@ impl Widget<u64> for Surface {
         // Pass the lifecycle to all the images
         for image in self.images.iter_mut() {
             image.widget_pod.lifecycle(ctx, event, &image.data, env);
+        }
+        match event {
+            LifeCycle::HotChanged(hot) => {
+                //println!("Hot changed: {}", hot);
+            }
+            _ => (),
         }
     }
 
@@ -203,7 +222,7 @@ impl Widget<u64> for Surface {
             let origin = image.images_area_origin + Vec2::new(border_width, border_width);
             let area = images_area.shrink(image.images_area_origin.to_vec2().to_size());
             let size = image.widget_pod.layout(ctx, &area, &image.data, env);
-            image.widget_pod.set_layout_rect(Rect::from_origin_size(origin, size));
+            image.widget_pod.set_origin(ctx, &image.data, env, origin);
         }
 
         // The surface always uses the whole area provided to it
@@ -229,7 +248,7 @@ impl Widget<u64> for Surface {
         // Paint all the images
         for &id in self.project.layers().iter() {
             let image = &mut self.images[id];
-            image.widget_pod.paint_with_offset(ctx, &image.data, env);
+            image.widget_pod.paint(ctx, &image.data, env);
         }
     }
 }

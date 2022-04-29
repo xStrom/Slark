@@ -9,6 +9,7 @@ authors = ["Kaur Kuut <admin@kaurkuut.com>"]
 [dependencies]
 #druid = { git = "https://github.com/xi-editor/druid.git" }
 druid = { path = "../druid/druid" }
+#druid = "0.5.0"
 gif = "0.10.3"
 gif-dispose = "2.2.0"
 imgref = "1.4.0"
