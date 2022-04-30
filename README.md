@@ -1,6 +1,6 @@
 # Slark
 
-Slark is a tool for viewing GIF images.
+Slark is a tool for viewing GIF and WebP images. Both have support for static images and animated images.
 
 ## Project status
 

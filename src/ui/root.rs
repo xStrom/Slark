@@ -1,5 +1,5 @@
 /*
-    Copyright 2019-2020 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2019-2022 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 
@@ -74,9 +74,12 @@ pub fn ui_root() -> impl Widget<u64> {
     col.add_child(Stats::new());
 
     let mut project = Project::new();
-    project.add("fw.gif".into());
-    //project.add("fw-alpha.gif".into());
-    //project.add("large.gif".into());
+    project.add("images/fw.gif".into());
+    //project.add("images/fw-alpha.gif".into());
+    //project.add("images/large.gif".into());
+
+    project.add("images/tree.webp".into());
+    project.add("images/animated.webp".into());
 
     //load_x(&mut project);
 
@@ -89,7 +92,7 @@ pub fn ui_root() -> impl Widget<u64> {
 }
 
 fn load_x(project: &mut Project) {
-    let dir = read_dir("y").expect("Failed read_dir");
+    let dir = read_dir("images/y").expect("Failed read_dir");
     for entry in dir {
         let entry = entry.expect("Entry failed");
         let path = entry.path();

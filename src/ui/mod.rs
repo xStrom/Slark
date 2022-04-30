@@ -1,5 +1,5 @@
 /*
-    Copyright 2019 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2019-2022 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 
@@ -17,8 +17,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-mod gif;
-pub use self::gif::*;
+mod image;
+pub use self::image::*;
 
 mod root;
 pub use root::ui_root;

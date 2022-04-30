@@ -1,5 +1,5 @@
 /*
-    Copyright 2019 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2019-2022 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 

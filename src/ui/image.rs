@@ -1,5 +1,5 @@
 /*
-    Copyright 2019-2020 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2019-2022 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 
@@ -17,6 +17,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::ffi::OsStr;
 use std::fs::File;
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver};
@@ -39,9 +40,7 @@ pub struct ImageData {
     pub selected: bool,
 }
 
-pub struct Gif {
-    width: usize,
-    height: usize,
+pub struct Image {
     source: Option<Receiver<FrameSource>>,
     frames: Vec<Frame>,
     current_frame: usize,
@@ -49,63 +48,125 @@ pub struct Gif {
 }
 
 struct FrameSource {
-    pixels: ImgVec<RGBA8>,
+    data: Vec<u8>,
+    width: usize,
+    height: usize,
     delay: i64,
 }
 
 struct Frame {
     delay: i64,
+    width: usize,
+    height: usize,
     img: druid::piet::d2d::Bitmap, // TODO: Get druid::piet::Image working for cross-platform support
 }
 
-impl Gif {
-    pub fn new(path: &Path) -> Gif {
-        let file = File::open(path).expect("Failed to open file");
-        let mut decoder = Decoder::new(file);
-        decoder.set(gif::ColorOutput::Indexed);
+impl Image {
+    pub fn new(path: &Path) -> Image {
+        let gif_ext = OsStr::new("gif");
+        let webp_ext = OsStr::new("webp");
 
-        let mut reader = decoder.read_info().expect("Failed to read info");
-        let width = reader.width() as usize;
-        let height = reader.height() as usize;
-        let global_palette = reader.global_palette().map(Gif::convert_pixels);
+        match path.extension() {
+            Some(ext) => {
+                if ext == gif_ext {
+                    let file = File::open(path).expect("Failed to open file");
+                    let mut decoder = Decoder::new(file);
+                    decoder.set(gif::ColorOutput::Indexed);
 
-        let mut screen = Screen::new(width, height, RGBA8::default(), global_palette);
+                    let mut reader = decoder.read_info().expect("Failed to read info");
+                    let width = reader.width() as usize;
+                    let height = reader.height() as usize;
+                    let global_palette = reader.global_palette().map(Image::convert_pixels);
 
-        let (sender, receiver) = channel();
+                    let mut screen = Screen::new(width, height, RGBA8::default(), global_palette);
 
-        let debug_filename = String::from(path.to_str().expect("GIF path is invalid UTF-8"));
+                    let (sender, receiver) = channel();
 
-        thread::spawn(move || {
-            let start = Instant::now();
-            // NOTE: The decoding/bliting is surprisingly slow, especially in debug builds
-            while let Some(frame) = reader.read_next_frame().expect("Failed to read next frame") {
-                screen.blit_frame(&frame).expect("Failed to blit frame");
-                sender
-                    .send(FrameSource {
-                        pixels: screen.pixels.clone(),
-                        delay: frame.delay as i64 * 10_000_000,
-                    })
-                    .expect("Failed to send frame source");
+                    let debug_filename = String::from(path.to_str().expect("GIF path is invalid UTF-8"));
+
+                    thread::spawn(move || {
+                        let start = Instant::now();
+                        // NOTE: The decoding/bliting is surprisingly slow, especially in debug builds
+                        while let Some(frame) = reader.read_next_frame().expect("Failed to read next frame") {
+                            screen.blit_frame(&frame).expect("Failed to blit frame");
+                            sender
+                                .send(FrameSource {
+                                    data: Vec::from(screen.pixels.buf().as_bytes()),
+                                    width: screen.pixels.width(),
+                                    height: screen.pixels.height(),
+                                    delay: frame.delay as i64 * 10_000_000,
+                                })
+                                .expect("Failed to send frame source");
+                        }
+                        println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
+                    });
+
+                    Image {
+                        source: Some(receiver),
+                        frames: Vec::new(),
+                        current_frame: 0,
+                        current_delay: 0,
+                    }
+                } else if ext == webp_ext {
+                    let buffer = std::fs::read(path).unwrap();
+
+                    let (sender, receiver) = channel();
+
+                    let debug_filename = String::from(path.to_str().expect("WEBP path is invalid UTF-8"));
+
+                    thread::spawn(move || {
+                        let start = Instant::now();
+                        let decoder = webp_animation::Decoder::new(&buffer).unwrap();
+                        let mut dec_iter = decoder.into_iter();
+                        let mut prev_timestamp = 0;
+                        while let Some(frame) = dec_iter.next() {
+                            let (width, height) = frame.dimensions();
+                            println!(
+                                "Calculated {} frame delay: {} ms",
+                                debug_filename,
+                                (frame.timestamp() - prev_timestamp)
+                            );
+                            sender
+                                .send(FrameSource {
+                                    data: Vec::from(frame.data()),
+                                    width: width as usize,
+                                    height: height as usize,
+                                    delay: (frame.timestamp() - prev_timestamp) as i64 * 1_000_000,
+                                })
+                                .expect("Failed to send frame source");
+                            prev_timestamp = frame.timestamp();
+                        }
+                        println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
+                    });
+
+                    Image {
+                        source: Some(receiver),
+                        frames: Vec::new(),
+                        current_frame: 0,
+                        current_delay: 0,
+                    }
+                } else {
+                    panic!("Not a supported extension!");
+                }
             }
-            println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
-        });
-
-        Gif {
-            width: width,
-            height: height,
-            source: Some(receiver),
-            frames: Vec::new(),
-            current_frame: 0,
-            current_delay: 0,
+            _ => {
+                panic!("Not a supported extension!");
+            }
         }
     }
 
     pub fn width(&self) -> usize {
-        self.width
+        match self.frames.first() {
+            Some(frame) => frame.width,
+            None => 1,
+        }
     }
 
     pub fn height(&self) -> usize {
-        self.height
+        match self.frames.first() {
+            Some(frame) => frame.height,
+            None => 1,
+        }
     }
 
     #[rustfmt::skip]
@@ -127,15 +188,12 @@ impl Gif {
             if let Ok(source) = receiver.recv() {
                 let img = ctx
                     .render_ctx
-                    .make_image(
-                        source.pixels.width(),
-                        source.pixels.height(),
-                        source.pixels.buf().as_bytes(),
-                        ImageFormat::RgbaPremul,
-                    )
+                    .make_image(source.width, source.height, &source.data, ImageFormat::RgbaPremul)
                     .expect("Failed to create image");
                 self.frames.push(Frame {
                     img: img,
+                    width: source.width,
+                    height: source.height,
                     delay: source.delay,
                 });
             } else {
@@ -154,7 +212,7 @@ impl Gif {
     }
 }
 
-impl Widget<ImageData> for Gif {
+impl Widget<ImageData> for Image {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut ImageData, _env: &Env) {
         match event {
             Event::AnimFrame(interval) => {
@@ -182,8 +240,11 @@ impl Widget<ImageData> for Gif {
     fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &ImageData, _data: &ImageData, _env: &Env) {}
 
     fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &ImageData, _env: &Env) -> Size {
-        bc.debug_check("Gif");
-        bc.constrain((self.width as f64 - data.origin.x, self.height as f64 - data.origin.y))
+        bc.debug_check("Image");
+        bc.constrain((
+            self.width() as f64 - data.origin.x,
+            self.height() as f64 - data.origin.y,
+        ))
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &ImageData, _env: &Env) {
@@ -224,12 +285,12 @@ impl Widget<ImageData> for Gif {
                 ctx.render_ctx.stroke(line, &brush, width);
             }
             // Right
-            if data.origin.x == self.width as f64 - size.width {
+            if data.origin.x == self.width() as f64 - size.width {
                 let line = Line::new((dst_rect.x1 - 0.5, dst_rect.y0), (dst_rect.x1 - 0.5, dst_rect.y1));
                 ctx.render_ctx.stroke(line, &brush, width);
             }
             // Bottom
-            if data.origin.y == self.height as f64 - size.height {
+            if data.origin.y == self.height() as f64 - size.height {
                 let line = Line::new((dst_rect.x0, dst_rect.y1 - 0.5), (dst_rect.x1, dst_rect.y1 - 0.5));
                 ctx.render_ctx.stroke(line, &brush, width);
             }

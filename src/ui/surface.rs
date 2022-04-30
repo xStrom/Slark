@@ -1,5 +1,5 @@
 /*
-    Copyright 2019-2020 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2019-2022 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 
@@ -22,10 +22,10 @@ use std::path::PathBuf;
 use druid::kurbo::{Point, Rect, Vec2};
 use druid::piet::{PaintBrush, RenderContext};
 use druid::widget::prelude::*;
-use druid::{commands, Command, FileInfo, KbKey, Target, WidgetPod};
+use druid::{commands, Command, KbKey, Target, WidgetPod};
 
 use crate::project::{Image as ProjectImage, Project};
-use crate::ui::gif::{Gif, ImageData};
+use crate::ui::image::{Image as UIImage, ImageData};
 
 pub struct Surface {
     project: Project,
@@ -255,7 +255,7 @@ impl Widget<u64> for Surface {
 
 struct Image {
     id: usize,
-    widget_pod: WidgetPod<ImageData, Gif>,
+    widget_pod: WidgetPod<ImageData, UIImage>,
     images_area_origin: Point,
     data: ImageData,
 }
@@ -265,7 +265,7 @@ impl Image {
         let (images_area_origin, image_origin) = Self::split_origin(project_image.origin());
         Image {
             id: project_image.id(),
-            widget_pod: WidgetPod::new(Gif::new(project_image.path())),
+            widget_pod: WidgetPod::new(UIImage::new(project_image.path())),
             images_area_origin: images_area_origin,
             data: ImageData {
                 origin: image_origin,
