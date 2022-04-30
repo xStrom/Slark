@@ -19,6 +19,7 @@
 
 use std::ffi::OsStr;
 use std::fs::File;
+use std::io::BufReader;
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
@@ -31,7 +32,6 @@ use druid::Data;
 
 use gif::{Decoder, SetParameter};
 use gif_dispose::*;
-use imgref::*;
 use rgb::*;
 
 #[derive(Data, Clone)]
@@ -65,6 +65,8 @@ impl Image {
     pub fn new(path: &Path) -> Image {
         let gif_ext = OsStr::new("gif");
         let webp_ext = OsStr::new("webp");
+        let jpg_ext = OsStr::new("jpg");
+        let jpeg_ext = OsStr::new("jpeg");
 
         match path.extension() {
             Some(ext) => {
@@ -136,6 +138,49 @@ impl Image {
                                 .expect("Failed to send frame source");
                             prev_timestamp = frame.timestamp();
                         }
+                        println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
+                    });
+
+                    Image {
+                        source: Some(receiver),
+                        frames: Vec::new(),
+                        current_frame: 0,
+                        current_delay: 0,
+                    }
+                } else if ext == jpg_ext || ext == jpeg_ext {
+                    let file = File::open(path).expect("Failed to open file");
+
+                    let (sender, receiver) = channel();
+
+                    let debug_filename = String::from(path.to_str().expect("JPEG path is invalid UTF-8"));
+
+                    thread::spawn(move || {
+                        let start = Instant::now();
+
+                        let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(file));
+                        let pixels = decoder.decode().expect("Failed to decode JPEG image");
+                        let metadata = decoder.info().unwrap();
+
+                        let mut data = Vec::<u8>::with_capacity(metadata.width as usize * metadata.height as usize * 4);
+                        let mut i = 0;
+                        for b in pixels.iter() {
+                            data.push(*b);
+                            i += 1;
+                            if i == 3 {
+                                i = 0;
+                                data.push(255);
+                            }
+                        }
+
+                        sender
+                            .send(FrameSource {
+                                data: data,
+                                width: metadata.width as usize,
+                                height: metadata.height as usize,
+                                delay: 0,
+                            })
+                            .expect("Failed to send frame source");
+
                         println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
                     });
 

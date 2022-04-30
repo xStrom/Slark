@@ -78,8 +78,12 @@ pub fn ui_root() -> impl Widget<u64> {
     //project.add("images/fw-alpha.gif".into());
     //project.add("images/large.gif".into());
 
-    project.add("images/tree.webp".into());
+    //project.add("images/tree.webp".into());
+    //project.add("images/unicorn-space.webp".into());
     project.add("images/animated.webp".into());
+
+    project.add("images/unicorn.jpg".into());
+    project.add("images/d3-unicorn.jpeg".into());
 
     //load_x(&mut project);
 
