@@ -2,11 +2,11 @@
 
 Slark is a tool for viewing static and animated images.
 
-You can load multiple images into Slark and then drag them around the canvas. Use PGUP / PGDN to control their Z-ordering.
-
+You can load multiple images into Slark and then drag them around the canvas.
+Use PGUP / PGDN to control their Z-ordering.
 Ctrl+S / Ctrl+O to save / open a project file which remembers all the opened images and their location and z-order.
 
-Supported image formats are GIF, WebP, and JPEG.
+Supported image formats are GIF, WebP, JPEG, and PNG.
 
 ## Project status
 

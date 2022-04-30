@@ -67,6 +67,7 @@ impl Image {
         let webp_ext = OsStr::new("webp");
         let jpg_ext = OsStr::new("jpg");
         let jpeg_ext = OsStr::new("jpeg");
+        let png_ext = OsStr::new("png");
 
         match path.extension() {
             Some(ext) => {
@@ -190,6 +191,89 @@ impl Image {
                         current_frame: 0,
                         current_delay: 0,
                     }
+                } else if ext == png_ext {
+                    let file = File::open(path).expect("Failed to open file");
+
+                    let (sender, receiver) = channel();
+
+                    let debug_filename = String::from(path.to_str().expect("JPEG path is invalid UTF-8"));
+
+                    thread::spawn(move || {
+                        let start = Instant::now();
+
+                        // TODO: Make sure that transparency works properly.
+                        // TODO: Figure out the issues with the walking APNG.
+
+                        let decoder = png::Decoder::new(file);
+                        let mut reader = decoder.read_info().unwrap();
+                        // Allocate the output buffer.
+                        let mut buf = vec![0; reader.output_buffer_size()];
+                        // Read the next frame. An APNG might contain multiple frames.
+                        loop {
+                            match reader.next_frame(&mut buf) {
+                                Ok(info) => {
+                                    let (mut width, mut height) = (info.width as usize, info.height as usize);
+
+                                    // Grab the bytes of the image.
+                                    let bytes = &buf[..info.buffer_size()];
+
+                                    let mut delay = 0;
+                                    // Inspect more details of the last read frame.
+                                    if let Some(more_info) = reader.info().frame_control {
+                                        let mut den = more_info.delay_den as u64;
+                                        if den == 0 {
+                                            den = 100;
+                                        }
+                                        delay = (1_000_000_000 * (more_info.delay_num as u64) / den) as i64;
+
+                                        (width, height) = (more_info.width as usize, more_info.height as usize);
+                                    }
+
+                                    println!(
+                                        "Found another PNG frame for {} which has {} bytes and {} x {}",
+                                        debug_filename,
+                                        bytes.len(),
+                                        info.width,
+                                        info.height
+                                    );
+
+                                    let mut data =
+                                        Vec::<u8>::with_capacity(info.width as usize * info.height as usize * 4);
+                                    let mut i = 0;
+                                    for b in bytes.iter() {
+                                        data.push(*b);
+                                        i += 1;
+                                        if i == 3 {
+                                            i = 0;
+                                            data.push(40);
+                                        }
+                                    }
+
+                                    sender
+                                        .send(FrameSource {
+                                            data: data,
+                                            width: width,
+                                            height: height,
+                                            delay: delay,
+                                        })
+                                        .expect("Failed to send frame source");
+                                }
+                                Err(error) => {
+                                    println!("PNG reader error: {}", error);
+                                    break;
+                                }
+                            }
+                        }
+
+                        println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
+                    });
+
+                    Image {
+                        source: Some(receiver),
+                        frames: Vec::new(),
+                        current_frame: 0,
+                        current_delay: 0,
+                    }
                 } else {
                     panic!("Not a supported extension!");
                 }
@@ -219,15 +303,15 @@ impl Image {
         palette_bytes.chunks(3).map(|byte| {RGB8{r: byte[0], g: byte[1], b: byte[2]}.into()}).collect()
     }
 
-    fn current_frame(&mut self, ctx: &mut PaintCtx) -> &druid::piet::d2d::Bitmap {
+    fn current_frame(&mut self, ctx: &mut PaintCtx) -> Option<&druid::piet::d2d::Bitmap> {
         if self.frames.is_empty() {
             self.next_frame(ctx)
         } else {
-            &self.frames[self.current_frame].img
+            Some(&self.frames[self.current_frame].img)
         }
     }
 
-    fn next_frame(&mut self, ctx: &mut PaintCtx) -> &druid::piet::d2d::Bitmap {
+    fn next_frame(&mut self, ctx: &mut PaintCtx) -> Option<&druid::piet::d2d::Bitmap> {
         if self.source.is_some() {
             let receiver = self.source.as_ref().unwrap();
             if let Ok(source) = receiver.recv() {
@@ -247,13 +331,18 @@ impl Image {
         }
         // Progress to the next frame
         self.current_frame += 1;
-        if self.current_frame == self.frames.len() {
+        if self.current_frame >= self.frames.len() {
             self.current_frame = 0;
         }
+
+        if self.frames.len() == 0 {
+            return None;
+        }
+
         // Add the post-frame delay to our counter
         self.current_delay += self.frames[self.current_frame].delay;
         // Return the frame
-        &self.frames[self.current_frame].img
+        Some(&self.frames[self.current_frame].img)
     }
 }
 
@@ -300,17 +389,19 @@ impl Widget<ImageData> for Image {
 
         if self.current_delay > 0 {
             // Still more waiting to do, just paint the current frame
-            let img = self.current_frame(ctx);
-            ctx.render_ctx
-                .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+            if let Some(img) = self.current_frame(ctx) {
+                ctx.render_ctx
+                    .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+            }
         } else {
             // Paint until there's a delay specified
             let start_frame = self.current_frame;
             while self.current_delay <= 0 {
                 // Paint the next frame
-                let img = self.next_frame(ctx);
-                ctx.render_ctx
-                    .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+                if let Some(img) = self.next_frame(ctx) {
+                    ctx.render_ctx
+                        .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+                }
                 // Detect infinite loops due to GIFs with only 0-delay frames
                 if self.current_frame == start_frame {
                     break;

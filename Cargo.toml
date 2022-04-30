@@ -10,6 +10,7 @@ authors = ["Kaur Kuut <admin@kaurkuut.com>"]
 #druid = { git = "https://github.com/xi-editor/druid.git" }
 druid = { path = "../druid/druid" }
 #druid = "0.5.0"
+png = "0.17.5"
 jpeg-decoder = "0.2.0"
 webp-animation = "0.6.0"
 gif = "0.10.3"
