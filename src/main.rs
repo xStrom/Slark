@@ -19,13 +19,17 @@
 
 use druid::{AppLauncher, LocalizedString, WindowDesc};
 
+use std::env;
+
 mod ui;
 use ui::ui_root;
 
 mod project;
 
 fn main() {
-    let window = WindowDesc::<u64>::new(ui_root())
+    let filenames: Vec<String> = env::args().skip(1).collect();
+
+    let window = WindowDesc::<u64>::new(ui_root(filenames))
         .title(LocalizedString::new("app_title").with_placeholder("Slark".to_string()))
         //.window_size((400.0, 300.0))
         //.with_min_size((300.0, 200.0));

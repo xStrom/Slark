@@ -68,25 +68,32 @@ pub fn ui_rootx() -> impl Widget<u64> {
     root_flex
 }
 
-pub fn ui_root() -> impl Widget<u64> {
+pub fn ui_root(filenames: Vec<String>) -> impl Widget<u64> {
     let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Start);
 
     col.add_child(Stats::new());
 
-    let mut project = Project::new();
-    project.add("images/fw.gif".into());
+    let mut project;
+    if filenames.len() > 0 && filenames[0].ends_with(".ark") {
+        project = Project::open((&filenames[0]).into());
+    } else {
+        project = Project::new();
+        filenames.iter().for_each(|filename| project.add(filename.into()));
+    };
+
+    //project.add("images/fw.gif".into());
     //project.add("images/fw-alpha.gif".into());
     //project.add("images/large.gif".into());
 
     //project.add("images/tree.webp".into());
     //project.add("images/unicorn-space.webp".into());
-    project.add("images/animated.webp".into());
+    //project.add("images/animated.webp".into());
 
     //project.add("images/unicorn.jpg".into());
     //project.add("images/d3-unicorn.jpeg".into());
 
     //project.add("images/hamster.png".into());
-    project.add("images/walking.png".into());
+    //project.add("images/walking.png".into());
     //project.add("images/fire.png".into());
     //project.add("images/explosion.png".into());
 

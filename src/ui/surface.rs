@@ -17,7 +17,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use druid::kurbo::{Point, Rect, Vec2};
 use druid::piet::{PaintBrush, RenderContext};
@@ -40,7 +40,7 @@ impl Surface {
     pub fn new(project: Project) -> Surface {
         let mut images = Vec::new();
         for project_image in project.images() {
-            images.push(Image::new(project_image));
+            images.push(Image::new(project.path(), project_image));
         }
         Surface {
             project: project,
@@ -57,7 +57,7 @@ impl Surface {
         self.images = {
             let mut images = Vec::new();
             for project_image in self.project.images() {
-                images.push(Image::new(project_image));
+                images.push(Image::new(self.project.path(), project_image));
             }
             images
         };
@@ -261,11 +261,20 @@ struct Image {
 }
 
 impl Image {
-    fn new(project_image: &ProjectImage) -> Image {
+    fn new(project_path: Option<&Path>, project_image: &ProjectImage) -> Image {
         let (images_area_origin, image_origin) = Self::split_origin(project_image.origin());
+
+        let image_full_path = match project_path {
+            Some(path) => match path.parent() {
+                Some(path) => path.join(project_image.path()).canonicalize().unwrap(), // TODO: This is a common unwrap panic, if .ark contains path which doesn't exist
+                None => project_image.path().to_path_buf(),
+            },
+            None => project_image.path().to_path_buf(),
+        };
+
         Image {
             id: project_image.id(),
-            widget_pod: WidgetPod::new(UIImage::new(project_image.path())),
+            widget_pod: WidgetPod::new(UIImage::new(&image_full_path)),
             images_area_origin: images_area_origin,
             data: ImageData {
                 origin: image_origin,
@@ -299,8 +308,12 @@ impl Image {
         // Calculate the new origin in relation to the surface's image display area
         let mut origin = self.images_area_origin - self.data.origin + delta;
         // Make sure there remains at least 1px visible on each axis
-        let min_x = -(self.widget_pod.widget().width() as f64) + 1.0;
-        let min_y = -(self.widget_pod.widget().height() as f64) + 1.0;
+        let size = match self.widget_pod.widget().size() {
+            Some(size) => size,
+            None => Size::new(100.0, 100.0),
+        };
+        let min_x = -(size.width) + 1.0;
+        let min_y = -(size.height) + 1.0;
         let max_x = images_area.width - 1.0;
         let max_y = images_area.height - 1.0;
         origin.x = origin.x.max(min_x).min(max_x);

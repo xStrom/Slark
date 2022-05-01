@@ -43,8 +43,11 @@ pub struct ImageData {
 pub struct Image {
     source: Option<Receiver<FrameSource>>,
     frames: Vec<Frame>,
+    size: Option<Size>,
     current_frame: usize,
     current_delay: i64,
+
+    need_legit_layout: bool, // true when we've had to give a fake size in layout
 }
 
 struct FrameSource {
@@ -107,8 +110,10 @@ impl Image {
                     Image {
                         source: Some(receiver),
                         frames: Vec::new(),
+                        size: Some(Size::new(width as f64, height as f64)),
                         current_frame: 0,
                         current_delay: 0,
+                        need_legit_layout: false,
                     }
                 } else if ext == webp_ext {
                     let buffer = std::fs::read(path).unwrap();
@@ -145,8 +150,10 @@ impl Image {
                     Image {
                         source: Some(receiver),
                         frames: Vec::new(),
+                        size: None, // TODO: Probably should get the total image dimensions here, not depend on the first frame which might be smaller.
                         current_frame: 0,
                         current_delay: 0,
+                        need_legit_layout: false,
                     }
                 } else if ext == jpg_ext || ext == jpeg_ext {
                     let file = File::open(path).expect("Failed to open file");
@@ -188,8 +195,10 @@ impl Image {
                     Image {
                         source: Some(receiver),
                         frames: Vec::new(),
+                        size: None,
                         current_frame: 0,
                         current_delay: 0,
+                        need_legit_layout: false,
                     }
                 } else if ext == png_ext {
                     let file = File::open(path).expect("Failed to open file");
@@ -271,8 +280,10 @@ impl Image {
                     Image {
                         source: Some(receiver),
                         frames: Vec::new(),
+                        size: None,
                         current_frame: 0,
                         current_delay: 0,
+                        need_legit_layout: false,
                     }
                 } else {
                     panic!("Not a supported extension!");
@@ -284,18 +295,8 @@ impl Image {
         }
     }
 
-    pub fn width(&self) -> usize {
-        match self.frames.first() {
-            Some(frame) => frame.width,
-            None => 1,
-        }
-    }
-
-    pub fn height(&self) -> usize {
-        match self.frames.first() {
-            Some(frame) => frame.height,
-            None => 1,
-        }
+    pub fn size(&self) -> Option<Size> {
+        self.size
     }
 
     #[rustfmt::skip]
@@ -325,6 +326,10 @@ impl Image {
                     height: source.height,
                     delay: source.delay,
                 });
+                // Set the image's dimensions based on the first frame, unless we already have that info
+                if self.size.is_none() {
+                    self.size = Some(Size::new(source.width as f64, source.height as f64));
+                }
             } else {
                 self.source = None;
             }
@@ -357,6 +362,11 @@ impl Widget<ImageData> for Image {
                 // When we do fine-grained invalidation,
                 // no doubt this will be required:
                 //ctx.request_paint();
+
+                if self.need_legit_layout && self.size.is_some() {
+                    ctx.request_layout();
+                    self.need_legit_layout = false;
+                }
             }
             _ => (),
         }
@@ -375,12 +385,17 @@ impl Widget<ImageData> for Image {
 
     fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &ImageData, _env: &Env) -> Size {
         bc.debug_check("Image");
-        bc.constrain((
-            self.width() as f64 - data.origin.x,
-            self.height() as f64 - data.origin.y,
-        ))
+        let size = match self.size {
+            Some(size) => Size::new(size.width - data.origin.x, size.height - data.origin.y),
+            None => {
+                self.need_legit_layout = true;
+                Size::new(100.0 - data.origin.x, 100.0 - data.origin.y)
+            }
+        };
+        bc.constrain(size)
     }
 
+    // TODO: Figure out why some GIFs don't immediately show/paint when opening ark files
     fn paint(&mut self, ctx: &mut PaintCtx, data: &ImageData, _env: &Env) {
         // Determine the area of the frame to paint
         let size = ctx.size();
@@ -413,27 +428,32 @@ impl Widget<ImageData> for Image {
         // TODO: What if it's a 1px image?
         if data.selected {
             let brush = ctx.render_ctx.solid_brush(Color::rgb8(245, 132, 66));
-            let width = 1.0;
+            let stroke_width = 1.0;
+
+            let (width, height) = match self.size {
+                Some(size) => (size.width, size.height),
+                None => (100.0, 100.0),
+            };
 
             // Top
             if data.origin.y == 0.0 {
                 let line = Line::new((dst_rect.x0, dst_rect.y0 + 0.5), (dst_rect.x1, dst_rect.y0 + 0.5));
-                ctx.render_ctx.stroke(line, &brush, width);
+                ctx.render_ctx.stroke(line, &brush, stroke_width);
             }
             // Right
-            if data.origin.x == self.width() as f64 - size.width {
+            if data.origin.x == width - size.width {
                 let line = Line::new((dst_rect.x1 - 0.5, dst_rect.y0), (dst_rect.x1 - 0.5, dst_rect.y1));
-                ctx.render_ctx.stroke(line, &brush, width);
+                ctx.render_ctx.stroke(line, &brush, stroke_width);
             }
             // Bottom
-            if data.origin.y == self.height() as f64 - size.height {
+            if data.origin.y == height - size.height {
                 let line = Line::new((dst_rect.x0, dst_rect.y1 - 0.5), (dst_rect.x1, dst_rect.y1 - 0.5));
-                ctx.render_ctx.stroke(line, &brush, width);
+                ctx.render_ctx.stroke(line, &brush, stroke_width);
             }
             // Left
             if data.origin.x == 0.0 {
                 let line = Line::new((dst_rect.x0 + 0.5, dst_rect.y0), (dst_rect.x0 + 0.5, dst_rect.y1));
-                ctx.render_ctx.stroke(line, &brush, width);
+                ctx.render_ctx.stroke(line, &brush, stroke_width);
             }
         }
     }
