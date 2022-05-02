@@ -30,8 +30,9 @@ use druid::widget::prelude::*;
 use druid::Data;
 
 use gif_dispose::*;
+use imgref::ImgVec;
 use png::ColorType;
-use rgb::*;
+use rgb::{ComponentBytes, RGBA8};
 
 #[derive(Data, Clone)]
 pub struct ViewData {
@@ -76,9 +77,7 @@ pub struct View {
 }
 
 struct FrameSource {
-    data: Vec<u8>,
-    width: usize,
-    height: usize,
+    image: ImgVec<RGBA8>,
     delay: i64,
 }
 
@@ -122,11 +121,10 @@ impl View {
                             screen.blit_frame(frame).expect("Failed to blit frame");
                             let pixel_ref = screen.pixels.as_ref();
                             let (buf, width, height) = pixel_ref.to_contiguous_buf();
+                            let image = ImgVec::<RGBA8>::new(Vec::from(buf), width, height);
                             sender
                                 .send(FrameSource {
-                                    data: Vec::from(buf.as_bytes()),
-                                    width: width,
-                                    height: height,
+                                    image: image,
                                     delay: frame.delay as i64 * 10_000_000,
                                 })
                                 .expect("Failed to send frame source");
@@ -161,11 +159,20 @@ impl View {
                                 debug_filename,
                                 (frame.timestamp() - prev_timestamp)
                             );
+                            let pixels = frame
+                                .data()
+                                .chunks(4)
+                                .map(|bytes| RGBA8 {
+                                    r: bytes[0],
+                                    g: bytes[1],
+                                    b: bytes[2],
+                                    a: bytes[3],
+                                })
+                                .collect();
+                            let image = ImgVec::new(pixels, width as usize, height as usize);
                             sender
                                 .send(FrameSource {
-                                    data: Vec::from(frame.data()),
-                                    width: width as usize,
-                                    height: height as usize,
+                                    image: image,
                                     delay: (frame.timestamp() - prev_timestamp) as i64 * 1_000_000,
                                 })
                                 .expect("Failed to send frame source");
@@ -207,13 +214,19 @@ impl View {
                             }
                         }
 
-                        sender
-                            .send(FrameSource {
-                                data: data,
-                                width: metadata.width as usize,
-                                height: metadata.height as usize,
-                                delay: 0,
+                        let pixels = data
+                            .chunks(4)
+                            .map(|bytes| RGBA8 {
+                                r: bytes[0],
+                                g: bytes[1],
+                                b: bytes[2],
+                                a: bytes[3],
                             })
+                            .collect();
+                        let image = ImgVec::new(pixels, metadata.width as usize, metadata.height as usize);
+
+                        sender
+                            .send(FrameSource { image: image, delay: 0 })
                             .expect("Failed to send frame source");
 
                         println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
@@ -278,6 +291,10 @@ impl View {
                                         delay = (1_000_000_000 * (more_info.delay_num as u64) / den) as i64;
 
                                         (width, height) = (more_info.width as usize, more_info.height as usize);
+
+                                        if more_info.x_offset != 0 || more_info.y_offset != 0 {
+                                            println!("Saw offsets: {} {}", more_info.x_offset, more_info.y_offset);
+                                        }
                                     }
 
                                     println!(
@@ -333,11 +350,20 @@ impl View {
                                         }
                                     }
 
+                                    let pixels = data
+                                        .chunks(4)
+                                        .map(|bytes| RGBA8 {
+                                            r: bytes[0],
+                                            g: bytes[1],
+                                            b: bytes[2],
+                                            a: bytes[3],
+                                        })
+                                        .collect();
+                                    let image = ImgVec::new(pixels, width as usize, height as usize);
+
                                     sender
                                         .send(FrameSource {
-                                            data: data,
-                                            width: width,
-                                            height: height,
+                                            image: image,
                                             delay: delay,
                                         })
                                         .expect("Failed to send frame source");
@@ -380,20 +406,20 @@ impl View {
         if self.source.is_some() {
             let receiver = self.source.as_ref().unwrap();
             if let Ok(source) = receiver.recv() {
-                //println!("First color: {} {} {} {}", source.data[0], source.data[1], source.data[2], source.data[3]);
+                let (buf, width, height) = source.image.into_contiguous_buf();
                 let img = ctx
                     .render_ctx
-                    .make_image(source.width, source.height, &source.data, ImageFormat::RgbaSeparate)
+                    .make_image(width, height, buf.as_bytes(), ImageFormat::RgbaSeparate)
                     .expect("Failed to create image");
                 self.frames.push(Frame {
                     img: img,
-                    width: source.width,
-                    height: source.height,
+                    width: width,
+                    height: height,
                     delay: source.delay,
                 });
                 // Set the image's dimensions based on the first frame, unless we already have that info
                 if self.image_size.is_none() {
-                    self.image_size = Some(Size::new(source.width as f64, source.height as f64));
+                    self.image_size = Some(Size::new(width as f64, height as f64));
                 }
                 return true;
             } else {
