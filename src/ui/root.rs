@@ -27,7 +27,7 @@ use druid::Widget;
 use druid::widget::{Padding, SizedBox};
 use druid::WidgetExt;
 
-use super::{Border, Stats, Surface};
+use super::{Stats, Surface};
 use crate::project::Project;
 
 pub fn ui_rootx() -> impl Widget<u64> {
@@ -99,11 +99,8 @@ pub fn ui_root(filenames: Vec<String>) -> impl Widget<u64> {
 
     //load_x(&mut project);
 
-    let mut surface = Surface::new(project);
-    surface.set_border(Some(Border::new(0.0, Color::rgb8(47, 98, 237).into())));
-
+    let surface = Surface::new(project);
     col.add_flex_child(surface, 1.0);
-
     col
 }
 

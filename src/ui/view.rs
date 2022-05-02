@@ -25,7 +25,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
 
-use druid::kurbo::{Line, Point, Rect};
+use druid::kurbo::{Point, Rect};
 use druid::piet::{Color, ImageFormat, InterpolationMode, RenderContext};
 use druid::widget::prelude::*;
 use druid::Data;
@@ -35,15 +35,15 @@ use gif_dispose::*;
 use rgb::*;
 
 #[derive(Data, Clone)]
-pub struct ImageData {
-    pub origin: Point,
+pub struct ViewData {
     pub selected: bool,
+    pub scale: f64,
 }
 
-pub struct Image {
+pub struct View {
     source: Option<Receiver<FrameSource>>,
+    image_size: Option<Size>,
     frames: Vec<Frame>,
-    size: Option<Size>,
     current_frame: usize,
     current_delay: i64,
 
@@ -64,8 +64,8 @@ struct Frame {
     img: druid::piet::d2d::Bitmap, // TODO: Get druid::piet::Image working for cross-platform support
 }
 
-impl Image {
-    pub fn new(path: &Path) -> Image {
+impl View {
+    pub fn new(path: &Path) -> View {
         let gif_ext = OsStr::new("gif");
         let webp_ext = OsStr::new("webp");
         let jpg_ext = OsStr::new("jpg");
@@ -82,7 +82,7 @@ impl Image {
                     let mut reader = decoder.read_info().expect("Failed to read info");
                     let width = reader.width() as usize;
                     let height = reader.height() as usize;
-                    let global_palette = reader.global_palette().map(Image::convert_pixels);
+                    let global_palette = reader.global_palette().map(View::convert_pixels);
 
                     let mut screen = Screen::new(width, height, RGBA8::default(), global_palette);
 
@@ -94,7 +94,7 @@ impl Image {
                         let start = Instant::now();
                         // NOTE: The decoding/bliting is surprisingly slow, especially in debug builds
                         while let Some(frame) = reader.read_next_frame().expect("Failed to read next frame") {
-                            screen.blit_frame(&frame).expect("Failed to blit frame");
+                            screen.blit_frame(frame).expect("Failed to blit frame");
                             sender
                                 .send(FrameSource {
                                     data: Vec::from(screen.pixels.buf().as_bytes()),
@@ -107,10 +107,10 @@ impl Image {
                         println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
                     });
 
-                    Image {
+                    View {
                         source: Some(receiver),
+                        image_size: Some(Size::new(width as f64, height as f64)),
                         frames: Vec::new(),
-                        size: Some(Size::new(width as f64, height as f64)),
                         current_frame: 0,
                         current_delay: 0,
                         need_legit_layout: false,
@@ -147,10 +147,10 @@ impl Image {
                         println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
                     });
 
-                    Image {
+                    View {
                         source: Some(receiver),
+                        image_size: None, // TODO: Probably should get the total image dimensions here, not depend on the first frame which might be smaller.
                         frames: Vec::new(),
-                        size: None, // TODO: Probably should get the total image dimensions here, not depend on the first frame which might be smaller.
                         current_frame: 0,
                         current_delay: 0,
                         need_legit_layout: false,
@@ -192,10 +192,10 @@ impl Image {
                         println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
                     });
 
-                    Image {
+                    View {
                         source: Some(receiver),
+                        image_size: None,
                         frames: Vec::new(),
-                        size: None,
                         current_frame: 0,
                         current_delay: 0,
                         need_legit_layout: false,
@@ -277,10 +277,10 @@ impl Image {
                         println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
                     });
 
-                    Image {
+                    View {
                         source: Some(receiver),
+                        image_size: None,
                         frames: Vec::new(),
-                        size: None,
                         current_frame: 0,
                         current_delay: 0,
                         need_legit_layout: false,
@@ -293,10 +293,6 @@ impl Image {
                 panic!("Not a supported extension!");
             }
         }
-    }
-
-    pub fn size(&self) -> Option<Size> {
-        self.size
     }
 
     #[rustfmt::skip]
@@ -327,8 +323,8 @@ impl Image {
                     delay: source.delay,
                 });
                 // Set the image's dimensions based on the first frame, unless we already have that info
-                if self.size.is_none() {
-                    self.size = Some(Size::new(source.width as f64, source.height as f64));
+                if self.image_size.is_none() {
+                    self.image_size = Some(Size::new(source.width as f64, source.height as f64));
                 }
             } else {
                 self.source = None;
@@ -351,8 +347,8 @@ impl Image {
     }
 }
 
-impl Widget<ImageData> for Image {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut ImageData, _env: &Env) {
+impl Widget<ViewData> for View {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut ViewData, _env: &Env) {
         match event {
             Event::AnimFrame(interval) => {
                 // TODO: Think about clamping it to zero -- comapre how it works.
@@ -363,7 +359,7 @@ impl Widget<ImageData> for Image {
                 // no doubt this will be required:
                 //ctx.request_paint();
 
-                if self.need_legit_layout && self.size.is_some() {
+                if self.need_legit_layout && self.image_size.is_some() {
                     ctx.request_layout();
                     self.need_legit_layout = false;
                 }
@@ -372,7 +368,7 @@ impl Widget<ImageData> for Image {
         }
     }
 
-    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &ImageData, _env: &Env) {
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &ViewData, _env: &Env) {
         match event {
             LifeCycle::WidgetAdded => {
                 ctx.request_anim_frame();
@@ -381,45 +377,54 @@ impl Widget<ImageData> for Image {
         }
     }
 
-    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &ImageData, _data: &ImageData, _env: &Env) {}
+    fn update(&mut self, ctx: &mut UpdateCtx, old_data: &ViewData, data: &ViewData, _env: &Env) {
+        if data.scale != old_data.scale {
+            ctx.request_layout();
+        }
+    }
 
-    fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &ImageData, _env: &Env) -> Size {
+    fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &ViewData, _env: &Env) -> Size {
         bc.debug_check("Image");
-        let size = match self.size {
-            Some(size) => Size::new(size.width - data.origin.x, size.height - data.origin.y),
+        let size = match self.image_size {
+            Some(size) => size * data.scale,
             None => {
                 self.need_legit_layout = true;
-                Size::new(100.0 - data.origin.x, 100.0 - data.origin.y)
+                Size::new(100.0, 100.0) * data.scale
             }
         };
+        // TODO: Should we ignore constraints to be able to return a non-integer HiDPI-aware size?
         bc.constrain(size)
     }
 
-    // TODO: Figure out why some GIFs don't immediately show/paint when opening ark files
-    fn paint(&mut self, ctx: &mut PaintCtx, data: &ImageData, _env: &Env) {
-        // Determine the area of the frame to paint
-        let size = ctx.size();
-        let src_rect = Rect::from_origin_size(data.origin, size);
-        let dst_rect = Rect::from_origin_size(Point::ZERO, size);
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &ViewData, _env: &Env) {
+        // TODO: Implement fancier resizing and cache the frames for recent scale factors
 
-        if self.current_delay > 0 {
-            // Still more waiting to do, just paint the current frame
-            if let Some(img) = self.current_frame(ctx) {
-                ctx.render_ctx
-                    .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
-            }
-        } else {
-            // Paint until there's a delay specified
-            let start_frame = self.current_frame;
-            while self.current_delay <= 0 {
-                // Paint the next frame
-                if let Some(img) = self.next_frame(ctx) {
+        let dst_rect = ctx.size().to_rect();
+
+        // Determine the area of the frame to paint
+        if let Some(image_size) = self.image_size {
+            // TODO: Think about scaling quality+speed here .. do we want to source from an already-scaled cached image instead?
+            let src_rect = image_size.to_rect();
+
+            if self.current_delay > 0 {
+                // Still more waiting to do, just paint the current frame
+                if let Some(img) = self.current_frame(ctx) {
                     ctx.render_ctx
                         .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
                 }
-                // Detect infinite loops due to GIFs with only 0-delay frames
-                if self.current_frame == start_frame {
-                    break;
+            } else {
+                // Paint until there's a delay specified
+                let start_frame = self.current_frame;
+                while self.current_delay <= 0 {
+                    // Paint the next frame
+                    if let Some(img) = self.next_frame(ctx) {
+                        ctx.render_ctx
+                            .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+                    }
+                    // Detect infinite loops due to GIFs with only 0-delay frames
+                    if self.current_frame == start_frame {
+                        break;
+                    }
                 }
             }
         }
@@ -430,31 +435,9 @@ impl Widget<ImageData> for Image {
             let brush = ctx.render_ctx.solid_brush(Color::rgb8(245, 132, 66));
             let stroke_width = 1.0;
 
-            let (width, height) = match self.size {
-                Some(size) => (size.width, size.height),
-                None => (100.0, 100.0),
-            };
-
-            // Top
-            if data.origin.y == 0.0 {
-                let line = Line::new((dst_rect.x0, dst_rect.y0 + 0.5), (dst_rect.x1, dst_rect.y0 + 0.5));
-                ctx.render_ctx.stroke(line, &brush, stroke_width);
-            }
-            // Right
-            if data.origin.x == width - size.width {
-                let line = Line::new((dst_rect.x1 - 0.5, dst_rect.y0), (dst_rect.x1 - 0.5, dst_rect.y1));
-                ctx.render_ctx.stroke(line, &brush, stroke_width);
-            }
-            // Bottom
-            if data.origin.y == height - size.height {
-                let line = Line::new((dst_rect.x0, dst_rect.y1 - 0.5), (dst_rect.x1, dst_rect.y1 - 0.5));
-                ctx.render_ctx.stroke(line, &brush, stroke_width);
-            }
-            // Left
-            if data.origin.x == 0.0 {
-                let line = Line::new((dst_rect.x0 + 0.5, dst_rect.y0), (dst_rect.x0 + 0.5, dst_rect.y1));
-                ctx.render_ctx.stroke(line, &brush, stroke_width);
-            }
+            // TODO: Double check the pixel perfect nature of this after HiDPI awareness is implemented
+            let stroke_rect = dst_rect.inset(-stroke_width / 2.0);
+            ctx.render_ctx.stroke(stroke_rect, &brush, stroke_width);
         }
     }
 }

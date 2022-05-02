@@ -20,59 +20,50 @@
 use std::path::{Path, PathBuf};
 
 use druid::kurbo::{Point, Rect, Vec2};
-use druid::piet::{PaintBrush, RenderContext};
 use druid::widget::prelude::*;
 use druid::{commands, Command, KbKey, Target, WidgetPod};
 
 use crate::project::{Image as ProjectImage, Project};
-use crate::ui::image::{Image as UIImage, ImageData};
+use crate::ui::view::{View, ViewData};
 
 pub struct Surface {
     project: Project,
-    images: Vec<Image>,
-    images_area_size: Size,
-    border: Option<Border>,
+    view_trackers: Vec<ViewTracker>,
+    active_view: Option<usize>,
     drag: Option<Drag>,
-    active_image: Option<usize>,
 }
 
 impl Surface {
     pub fn new(project: Project) -> Surface {
-        let mut images = Vec::new();
+        let mut view_trackers = Vec::new();
         for project_image in project.images() {
-            images.push(Image::new(project.path(), project_image));
+            view_trackers.push(ViewTracker::new(project.path(), project_image));
         }
         Surface {
             project: project,
-            images: images,
-            images_area_size: Size::ZERO,
-            border: None,
+            view_trackers: view_trackers,
+            active_view: None,
             drag: None,
-            active_image: None,
         }
     }
 
     pub fn set_project(&mut self, project: Project) {
         self.project = project;
-        self.images = {
-            let mut images = Vec::new();
+        self.view_trackers = {
+            let mut view_trackers = Vec::new();
             for project_image in self.project.images() {
-                images.push(Image::new(self.project.path(), project_image));
+                view_trackers.push(ViewTracker::new(self.project.path(), project_image));
             }
-            images
+            view_trackers
         };
+        self.active_view = None;
         self.drag = None;
-        self.active_image = None;
-    }
-
-    pub fn set_border(&mut self, border: Option<Border>) {
-        self.border = border;
     }
 }
 
 impl Widget<u64> for Surface {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u64, env: &Env) {
-        let mut hackyChildrenAdded = false;
+        let mut hacky_children_added = false;
 
         match event {
             Event::MouseDown(mouse_event) => {
@@ -80,26 +71,24 @@ impl Widget<u64> for Surface {
                     // TODO: Move this focus request elsewhere?
                     ctx.request_focus();
                     ctx.set_active(true);
-                    // Always clear the currently active image
-                    if let Some(active_image) = self.active_image {
-                        self.images[active_image].data.selected = false;
-                        self.active_image = None;
+                    // Always clear the currently active view
+                    if let Some(active_image) = self.active_view {
+                        self.view_trackers[active_image].data.selected = false;
+                        self.active_view = None;
                     }
                     // Locate the topmost layer that gets hit
                     for &id in self.project.layers().iter().rev() {
-                        let image = &mut self.images[id];
-                        let rect = image.widget_pod.layout_rect();
+                        let view_tracker = &mut self.view_trackers[id];
+                        let rect = view_tracker.widget_pod.layout_rect();
                         if rect.contains(mouse_event.pos) {
-                            // Set active image
-                            self.active_image = Some(image.id);
-                            image.data.selected = true;
+                            // Set active view
+                            self.active_view = Some(view_tracker.id);
+                            view_tracker.data.selected = true;
                             // Start the drag event
                             self.drag = Some(Drag {
-                                image_id: image.id,
+                                view_id: view_tracker.id,
                                 start: mouse_event.pos,
                             });
-                            // Send the event to the image as well
-                            image.widget_pod.event(ctx, event, &mut image.data, env);
                             break;
                         }
                     }
@@ -107,10 +96,10 @@ impl Widget<u64> for Surface {
             }
             Event::MouseMove(mouse_event) => {
                 if let Some(drag) = &mut self.drag {
-                    if let Some(image) = self.images.iter_mut().find(|image| image.id == drag.image_id) {
+                    if let Some(view_tracker) = self.view_trackers.iter_mut().find(|vt| vt.id == drag.view_id) {
                         self.project.set_origin(
-                            image.id,
-                            image.adjust_origin(&self.images_area_size, mouse_event.pos - drag.start),
+                            view_tracker.id,
+                            view_tracker.adjust_origin(&ctx.size(), mouse_event.pos - drag.start),
                         );
                         drag.start = mouse_event.pos;
                         ctx.request_layout();
@@ -120,24 +109,40 @@ impl Widget<u64> for Surface {
             Event::MouseUp(mouse_event) => {
                 if mouse_event.button.is_left() {
                     if let Some(drag) = &self.drag {
-                        let image = &mut self.images[drag.image_id];
+                        let view_tracker = &mut self.view_trackers[drag.view_id];
                         self.project.set_origin(
-                            image.id,
-                            image.adjust_origin(&self.images_area_size, mouse_event.pos - drag.start),
+                            view_tracker.id,
+                            view_tracker.adjust_origin(&ctx.size(), mouse_event.pos - drag.start),
                         );
                         self.drag = None;
+                        ctx.request_layout();
+                    }
+                }
+            }
+            Event::Wheel(mouse_event) => {
+                if let Some(view_id) = self.active_view {
+                    if mouse_event.wheel_delta.y < 0.0 {
+                        self.view_trackers[view_id].data.scale += 0.10;
+                        ctx.request_update();
+                    } else if mouse_event.wheel_delta.y > 0.0 {
+                        self.view_trackers[view_id].data.scale -= 0.10;
+                        if self.view_trackers[view_id].data.scale < 0.10 {
+                            self.view_trackers[view_id].data.scale = 0.10;
+                        } else {
+                            ctx.request_update();
+                        }
                     }
                 }
             }
             Event::KeyUp(key_event) => match &key_event.key {
                 KbKey::PageUp => {
-                    if let Some(active_image) = self.active_image {
-                        self.project.shift_layer(active_image, 1);
+                    if let Some(active_view) = self.active_view {
+                        self.project.shift_layer(active_view, 1);
                     }
                 }
                 KbKey::PageDown => {
-                    if let Some(active_image) = self.active_image {
-                        self.project.shift_layer(active_image, -1);
+                    if let Some(active_view) = self.active_view {
+                        self.project.shift_layer(active_view, -1);
                     }
                 }
                 KbKey::Character(ch) => {
@@ -172,24 +177,24 @@ impl Widget<u64> for Surface {
                     self.set_project(Project::open(PathBuf::from(info.path())));
                     // Are the following needed?
                     ctx.children_changed();
-                    hackyChildrenAdded = true;
+                    hacky_children_added = true;
                 }
             }
             _ => (),
         }
 
-        if !hackyChildrenAdded {
-            // Pass the event to all the images
-            for image in self.images.iter_mut() {
-                image.widget_pod.event(ctx, event, &mut image.data, env);
+        if !hacky_children_added {
+            // Pass the event to all the views
+            for view_tracker in self.view_trackers.iter_mut() {
+                view_tracker.widget_pod.event(ctx, event, &mut view_tracker.data, env);
             }
         }
     }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &u64, env: &Env) {
-        // Pass the lifecycle to all the images
-        for image in self.images.iter_mut() {
-            image.widget_pod.lifecycle(ctx, event, &image.data, env);
+        // Pass the lifecycle to all the views
+        for view_tracker in self.view_trackers.iter_mut() {
+            view_tracker.widget_pod.lifecycle(ctx, event, &view_tracker.data, env);
         }
         match event {
             LifeCycle::HotChanged(hot) => {
@@ -200,29 +205,24 @@ impl Widget<u64> for Surface {
     }
 
     fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &u64, _data: &u64, env: &Env) {
-        // Pass the update to all the images
-        for image in self.images.iter_mut() {
-            image.widget_pod.update(ctx, &image.data, env);
+        // Pass the update to all the views
+        for view_tracker in self.view_trackers.iter_mut() {
+            view_tracker.widget_pod.update(ctx, &view_tracker.data, env);
         }
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u64, env: &Env) -> Size {
         bc.debug_check("Surface");
 
-        // Reserve border area for the surface to make sure things work well
-        let border_width = match &self.border {
-            Some(border) => border.width,
-            None => 0.0,
-        };
-        let images_area = bc.shrink((2.0 * border_width, 2.0 * border_width)).loosen();
-        self.images_area_size = images_area.max();
-
-        // Set the layout for all the images
-        for image in self.images.iter_mut() {
-            let origin = image.images_area_origin + Vec2::new(border_width, border_width);
-            let area = images_area.shrink(image.images_area_origin.to_vec2().to_size());
-            let size = image.widget_pod.layout(ctx, &area, &image.data, env);
-            image.widget_pod.set_origin(ctx, &image.data, env, origin);
+        // Determine the layout for all the views
+        for view_tracker in self.view_trackers.iter_mut() {
+            // We give unbounded constraints as we'll clip everything at the surface level
+            view_tracker
+                .widget_pod
+                .layout(ctx, &BoxConstraints::UNBOUNDED, &view_tracker.data, env);
+            view_tracker
+                .widget_pod
+                .set_origin(ctx, &view_tracker.data, env, view_tracker.origin);
         }
 
         // The surface always uses the whole area provided to it
@@ -232,38 +232,25 @@ impl Widget<u64> for Surface {
     fn paint(&mut self, ctx: &mut PaintCtx, _data: &u64, env: &Env) {
         // Clip the overflow
         let size = ctx.size();
-        //ctx.render_ctx.clip(Rect::from_origin_size(Point::ZERO, size));
+        ctx.render_ctx.clip(Rect::from_origin_size(Point::ZERO, size));
 
-        // Paint border, if there is one
-        // TODO: Eventually move this after painting the images to cover up any anti-aliasing overflow
-        if let Some(border) = &self.border {
-            let offset = border.width / 2.0;
-            let rect = Rect::from_origin_size(
-                (offset, offset),
-                Size::new(size.width - border.width, size.height - border.width),
-            );
-            ctx.render_ctx.stroke(rect, &border.brush, border.width);
-        }
-
-        // Paint all the images
+        // Paint all the views in the configured layer order
         for &id in self.project.layers().iter() {
-            let image = &mut self.images[id];
-            image.widget_pod.paint(ctx, &image.data, env);
+            let view_tracker = &mut self.view_trackers[id];
+            view_tracker.widget_pod.paint(ctx, &view_tracker.data, env);
         }
     }
 }
 
-struct Image {
+struct ViewTracker {
     id: usize,
-    widget_pod: WidgetPod<ImageData, UIImage>,
-    images_area_origin: Point,
-    data: ImageData,
+    widget_pod: WidgetPod<ViewData, View>,
+    origin: Point, // View's origin in relation to Surface
+    data: ViewData,
 }
 
-impl Image {
-    fn new(project_path: Option<&Path>, project_image: &ProjectImage) -> Image {
-        let (images_area_origin, image_origin) = Self::split_origin(project_image.origin());
-
+impl ViewTracker {
+    fn new(project_path: Option<&Path>, project_image: &ProjectImage) -> ViewTracker {
         let image_full_path = match project_path {
             Some(path) => match path.parent() {
                 Some(path) => path.join(project_image.path()).canonicalize().unwrap(), // TODO: This is a common unwrap panic, if .ark contains path which doesn't exist
@@ -272,76 +259,33 @@ impl Image {
             None => project_image.path().to_path_buf(),
         };
 
-        Image {
+        ViewTracker {
             id: project_image.id(),
-            widget_pod: WidgetPod::new(UIImage::new(&image_full_path)),
-            images_area_origin: images_area_origin,
-            data: ImageData {
-                origin: image_origin,
+            widget_pod: WidgetPod::new(View::new(&image_full_path)),
+            origin: *project_image.origin(),
+            data: ViewData {
                 selected: false,
+                scale: 1.0,
             },
         }
     }
 
-    /// Split the origin between surface images area origin and image origin
-    fn split_origin(origin: &Point) -> (Point, Point) {
-        let mut images_area_origin = Point::ZERO;
-        let mut image_origin = Point::ZERO;
-        if origin.x < 0.0 {
-            images_area_origin.x = 0.0;
-            image_origin.x = origin.x.abs();
-        } else {
-            images_area_origin.x = origin.x;
-            image_origin.x = 0.0;
-        }
-        if origin.y < 0.0 {
-            images_area_origin.y = 0.0;
-            image_origin.y = origin.y.abs();
-        } else {
-            images_area_origin.y = origin.y;
-            image_origin.y = 0.0;
-        }
-        (images_area_origin, image_origin)
-    }
-
-    fn adjust_origin(&mut self, images_area: &Size, delta: Vec2) -> Point {
-        // Calculate the new origin in relation to the surface's image display area
-        let mut origin = self.images_area_origin - self.data.origin + delta;
-        // Make sure there remains at least 1px visible on each axis
-        let size = match self.widget_pod.widget().size() {
-            Some(size) => size,
-            None => Size::new(100.0, 100.0),
-        };
-        let min_x = -(size.width) + 1.0;
-        let min_y = -(size.height) + 1.0;
-        let max_x = images_area.width - 1.0;
-        let max_y = images_area.height - 1.0;
+    fn adjust_origin(&mut self, surface_size: &Size, delta: Vec2) -> Point {
+        // Make sure there remains at least 5dp visible on each axis
+        let mut origin = self.origin + delta;
+        let rect = self.widget_pod.layout_rect();
+        let min_x = -(rect.width()) + 5.0;
+        let min_y = -(rect.height()) + 5.0;
+        let max_x = surface_size.width - 5.0;
+        let max_y = surface_size.height - 5.0;
         origin.x = origin.x.max(min_x).min(max_x);
         origin.y = origin.y.max(min_y).min(max_y);
-        let origin = origin.to_point();
-        // Split the new origin between surface images area origin and image origin
-        let (images_area_origin, image_origin) = Self::split_origin(&origin);
-        self.images_area_origin = images_area_origin;
-        self.data.origin = image_origin;
+        self.origin = origin;
         origin
     }
 }
 
-pub struct Border {
-    pub width: f64,
-    pub brush: PaintBrush,
-}
-
-impl Border {
-    pub fn new(width: f64, brush: PaintBrush) -> Border {
-        Border {
-            width: width,
-            brush: brush,
-        }
-    }
-}
-
 struct Drag {
-    image_id: usize,
+    view_id: usize,
     start: Point,
 }
