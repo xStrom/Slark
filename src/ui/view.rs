@@ -25,7 +25,6 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
 
-use druid::kurbo::{Point, Rect};
 use druid::piet::{Color, ImageFormat, InterpolationMode, RenderContext};
 use druid::widget::prelude::*;
 use druid::Data;
@@ -300,15 +299,8 @@ impl View {
         palette_bytes.chunks(3).map(|byte| {RGB8{r: byte[0], g: byte[1], b: byte[2]}.into()}).collect()
     }
 
-    fn current_frame(&mut self, ctx: &mut PaintCtx) -> Option<&druid::piet::d2d::Bitmap> {
-        if self.frames.is_empty() {
-            self.next_frame(ctx)
-        } else {
-            Some(&self.frames[self.current_frame].img)
-        }
-    }
-
-    fn next_frame(&mut self, ctx: &mut PaintCtx) -> Option<&druid::piet::d2d::Bitmap> {
+    // Returns `true` if a new frame was loaded.
+    fn load_frame(&mut self, ctx: &mut PaintCtx) -> bool {
         if self.source.is_some() {
             let receiver = self.source.as_ref().unwrap();
             if let Ok(source) = receiver.recv() {
@@ -326,18 +318,35 @@ impl View {
                 if self.image_size.is_none() {
                     self.image_size = Some(Size::new(source.width as f64, source.height as f64));
                 }
+                return true;
             } else {
                 self.source = None;
             }
         }
+        false
+    }
+
+    fn current_frame(&mut self, ctx: &mut PaintCtx) -> Option<&druid::piet::d2d::Bitmap> {
+        self.load_frame(ctx);
+
+        if self.frames.is_empty() {
+            None
+        } else {
+            Some(&self.frames[self.current_frame].img)
+        }
+    }
+
+    fn next_frame(&mut self, ctx: &mut PaintCtx) -> Option<&druid::piet::d2d::Bitmap> {
+        self.load_frame(ctx);
+
+        if self.frames.len() == 0 {
+            return None;
+        }
+
         // Progress to the next frame
         self.current_frame += 1;
         if self.current_frame >= self.frames.len() {
             self.current_frame = 0;
-        }
-
-        if self.frames.len() == 0 {
-            return None;
         }
 
         // Add the post-frame delay to our counter
@@ -397,34 +406,30 @@ impl Widget<ViewData> for View {
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &ViewData, _env: &Env) {
-        // TODO: Implement fancier resizing and cache the frames for recent scale factors
+        // TODO: Implement fancier resizing and cache the frames for recent scale factors.
+        //       Think about scaling quality+speed here .. do we want to source from an already-scaled cached image instead?
 
+        let src_rect = self.image_size.unwrap_or_default().to_rect();
         let dst_rect = ctx.size().to_rect();
 
-        // Determine the area of the frame to paint
-        if let Some(image_size) = self.image_size {
-            // TODO: Think about scaling quality+speed here .. do we want to source from an already-scaled cached image instead?
-            let src_rect = image_size.to_rect();
-
-            if self.current_delay > 0 {
-                // Still more waiting to do, just paint the current frame
-                if let Some(img) = self.current_frame(ctx) {
+        if self.current_delay > 0 {
+            // Still more waiting to do, just paint the current frame
+            if let Some(img) = self.current_frame(ctx) {
+                ctx.render_ctx
+                    .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
+            }
+        } else {
+            // Paint until there's a delay specified
+            let start_frame = self.current_frame;
+            while self.current_delay <= 0 {
+                // Paint the next frame
+                if let Some(img) = self.next_frame(ctx) {
                     ctx.render_ctx
                         .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
                 }
-            } else {
-                // Paint until there's a delay specified
-                let start_frame = self.current_frame;
-                while self.current_delay <= 0 {
-                    // Paint the next frame
-                    if let Some(img) = self.next_frame(ctx) {
-                        ctx.render_ctx
-                            .draw_image_area(img, src_rect, dst_rect, InterpolationMode::Bilinear);
-                    }
-                    // Detect infinite loops due to GIFs with only 0-delay frames
-                    if self.current_frame == start_frame {
-                        break;
-                    }
+                // Detect infinite loops due to GIFs with only 0-delay frames
+                if self.current_frame == start_frame {
+                    break;
                 }
             }
         }
