@@ -29,7 +29,6 @@ use druid::piet::{Color, ImageFormat, InterpolationMode, RenderContext};
 use druid::widget::prelude::*;
 use druid::Data;
 
-use gif::{Decoder, SetParameter};
 use gif_dispose::*;
 use png::ColorType;
 use rgb::*;
@@ -102,13 +101,13 @@ impl View {
             Some(ext) => {
                 if ext == gif_ext {
                     let file = File::open(path).expect("Failed to open file");
-                    let mut decoder = Decoder::new(file);
-                    decoder.set(gif::ColorOutput::Indexed);
+                    let mut gif_opts = gif::DecodeOptions::new();
+                    gif_opts.set_color_output(gif::ColorOutput::Indexed);
 
-                    let mut reader = decoder.read_info().expect("Failed to read info");
-                    let width = reader.width() as usize;
-                    let height = reader.height() as usize;
-                    let global_palette = reader.global_palette().map(View::convert_pixels);
+                    let mut decoder = gif_opts.read_info(file).expect("Failed to read info");
+                    let width = decoder.width() as usize;
+                    let height = decoder.height() as usize;
+                    let global_palette = decoder.global_palette().map(View::convert_pixels);
 
                     let mut screen = Screen::new(width, height, RGBA8::default(), global_palette);
 
@@ -119,13 +118,15 @@ impl View {
                     thread::spawn(move || {
                         let start = Instant::now();
                         // NOTE: The decoding/bliting is surprisingly slow, especially in debug builds
-                        while let Some(frame) = reader.read_next_frame().expect("Failed to read next frame") {
+                        while let Some(frame) = decoder.read_next_frame().expect("Failed to read next frame") {
                             screen.blit_frame(frame).expect("Failed to blit frame");
+                            let pixel_ref = screen.pixels.as_ref();
+                            let (buf, width, height) = pixel_ref.to_contiguous_buf();
                             sender
                                 .send(FrameSource {
-                                    data: Vec::from(screen.pixels.buf().as_bytes()),
-                                    width: screen.pixels.width(),
-                                    height: screen.pixels.height(),
+                                    data: Vec::from(buf.as_bytes()),
+                                    width: width,
+                                    height: height,
                                     delay: frame.delay as i64 * 10_000_000,
                                 })
                                 .expect("Failed to send frame source");
@@ -379,6 +380,7 @@ impl View {
         if self.source.is_some() {
             let receiver = self.source.as_ref().unwrap();
             if let Ok(source) = receiver.recv() {
+                //println!("First color: {} {} {} {}", source.data[0], source.data[1], source.data[2], source.data[3]);
                 let img = ctx
                     .render_ctx
                     .make_image(source.width, source.height, &source.data, ImageFormat::RgbaSeparate)
