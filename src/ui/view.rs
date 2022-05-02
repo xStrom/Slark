@@ -36,7 +36,33 @@ use rgb::*;
 #[derive(Data, Clone)]
 pub struct ViewData {
     pub selected: bool,
-    pub scale: f64,
+    pub zoom: i32, // Use the zoom method to change
+}
+
+impl ViewData {
+    pub fn zoom(&mut self, delta: i32) {
+        let old_zoom = self.zoom;
+        let old_scale = self.scale_factor();
+        self.zoom = self.zoom + delta;
+        // If the scale factor didn't change, revert the zoom change
+        if self.scale_factor() == old_scale {
+            self.zoom = old_zoom;
+        }
+    }
+
+    pub fn scale_factor(&self) -> f64 {
+        if self.zoom < 0 {
+            let mut scale = 1.1f64.powi(self.zoom);
+            if scale < 0.1 {
+                scale = 0.1
+            }
+            scale
+        } else if self.zoom > 0 {
+            1.1f64.powi(self.zoom)
+        } else {
+            1.0
+        }
+    }
 }
 
 pub struct View {
@@ -387,7 +413,7 @@ impl Widget<ViewData> for View {
     }
 
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &ViewData, data: &ViewData, _env: &Env) {
-        if data.scale != old_data.scale {
+        if data.zoom != old_data.zoom {
             ctx.request_layout();
         }
     }
@@ -395,10 +421,10 @@ impl Widget<ViewData> for View {
     fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &ViewData, _env: &Env) -> Size {
         bc.debug_check("Image");
         let size = match self.image_size {
-            Some(size) => size * data.scale,
+            Some(size) => size * data.scale_factor(),
             None => {
                 self.need_legit_layout = true;
-                Size::new(100.0, 100.0) * data.scale
+                Size::new(100.0, 100.0) * data.scale_factor()
             }
         };
         // TODO: Should we ignore constraints to be able to return a non-integer HiDPI-aware size?

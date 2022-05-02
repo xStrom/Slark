@@ -122,16 +122,12 @@ impl Widget<u64> for Surface {
             Event::Wheel(mouse_event) => {
                 if let Some(view_id) = self.active_view {
                     if mouse_event.wheel_delta.y < 0.0 {
-                        self.view_trackers[view_id].data.scale += 0.10;
-                        ctx.request_update();
+                        self.view_trackers[view_id].data.zoom(1);
                     } else if mouse_event.wheel_delta.y > 0.0 {
-                        self.view_trackers[view_id].data.scale -= 0.10;
-                        if self.view_trackers[view_id].data.scale < 0.10 {
-                            self.view_trackers[view_id].data.scale = 0.10;
-                        } else {
-                            ctx.request_update();
-                        }
+                        self.view_trackers[view_id].data.zoom(-1);
                     }
+                    ctx.request_update();
+                    println!("Scale factor now: {}", self.view_trackers[view_id].data.scale_factor());
                 }
             }
             Event::KeyUp(key_event) => match &key_event.key {
@@ -265,7 +261,7 @@ impl ViewTracker {
             origin: *project_image.origin(),
             data: ViewData {
                 selected: false,
-                scale: 1.0,
+                zoom: 0,
             },
         }
     }
