@@ -31,6 +31,7 @@ use druid::Data;
 
 use gif::{Decoder, SetParameter};
 use gif_dispose::*;
+use png::ColorType;
 use rgb::*;
 
 #[derive(Data, Clone)]
@@ -235,11 +236,26 @@ impl View {
                     thread::spawn(move || {
                         let start = Instant::now();
 
-                        // TODO: Make sure that transparency works properly.
+                        // TODO: Make sure that transparency works properly in APNG.
                         // TODO: Figure out the issues with the walking APNG.
 
                         let decoder = png::Decoder::new(file);
                         let mut reader = decoder.read_info().unwrap();
+
+                        let info = reader.info();
+                        println!("PNG tRNS: {:?}", info.trns);
+                        println!("PNG palette: {:?}", info.palette);
+
+                        let trns = if let Some(trns) = &info.trns {
+                            let mut vec: Vec<u8> = Vec::new();
+                            for b in trns.iter() {
+                                vec.push(*b);
+                            }
+                            Some(vec)
+                        } else {
+                            None
+                        };
+
                         // Allocate the output buffer.
                         let mut buf = vec![0; reader.output_buffer_size()];
                         // Read the next frame. An APNG might contain multiple frames.
@@ -264,22 +280,55 @@ impl View {
                                     }
 
                                     println!(
-                                        "Found another PNG frame for {} which has {} bytes and {} x {}",
+                                        "Found another PNG frame for {} which has {} bytes of {:?} and {} x {}",
                                         debug_filename,
                                         bytes.len(),
+                                        info.color_type,
                                         info.width,
                                         info.height
                                     );
 
                                     let mut data =
                                         Vec::<u8>::with_capacity(info.width as usize * info.height as usize * 4);
-                                    let mut i = 0;
-                                    for b in bytes.iter() {
-                                        data.push(*b);
-                                        i += 1;
-                                        if i == 3 {
-                                            i = 0;
-                                            data.push(40);
+
+                                    match info.color_type {
+                                        ColorType::Grayscale => {
+                                            println!("Unimplemented color type {:?} for PNG.", info.color_type)
+                                        }
+                                        ColorType::GrayscaleAlpha => {
+                                            println!("Unimplemented color type {:?} for PNG.", info.color_type)
+                                        }
+                                        ColorType::Indexed => {
+                                            println!("Unimplemented color type {:?} for PNG.", info.color_type)
+                                        }
+                                        ColorType::Rgb => {
+                                            let mut i = 0;
+                                            for b in bytes.iter() {
+                                                data.push(*b);
+                                                i += 1;
+                                                if i == 3 {
+                                                    i = 0;
+                                                    match &trns {
+                                                        Some(trns) => {
+                                                            let len = data.len();
+                                                            if trns[0] == data[len - 3]
+                                                                && trns[1] == data[len - 2]
+                                                                && trns[2] == data[len - 1]
+                                                            {
+                                                                data.push(0);
+                                                            } else {
+                                                                data.push(255);
+                                                            }
+                                                        }
+                                                        None => data.push(255),
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        ColorType::Rgba => {
+                                            for b in bytes.iter() {
+                                                data.push(*b);
+                                            }
                                         }
                                     }
 
@@ -332,7 +381,7 @@ impl View {
             if let Ok(source) = receiver.recv() {
                 let img = ctx
                     .render_ctx
-                    .make_image(source.width, source.height, &source.data, ImageFormat::RgbaPremul)
+                    .make_image(source.width, source.height, &source.data, ImageFormat::RgbaSeparate)
                     .expect("Failed to create image");
                 self.frames.push(Frame {
                     img: img,
