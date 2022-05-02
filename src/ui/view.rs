@@ -67,25 +67,23 @@ impl ViewData {
 }
 
 pub struct View {
-    source: Option<Receiver<FrameSource>>,
+    source: Option<Receiver<FullFrame>>,
     image_size: Option<Size>,
-    frames: Vec<Frame>,
+    frames: Vec<CachedFrame>,
     current_frame: usize,
     current_delay: i64,
 
     need_legit_layout: bool, // true when we've had to give a fake size in layout
 }
 
-struct FrameSource {
+struct FullFrame {
     image: ImgVec<RGBA8>,
     delay: i64,
 }
 
-struct Frame {
+struct CachedFrame {
+    image: druid::piet::d2d::Bitmap, // TODO: Get druid::piet::Image working for cross-platform support
     delay: i64,
-    width: usize,
-    height: usize,
-    img: druid::piet::d2d::Bitmap, // TODO: Get druid::piet::Image working for cross-platform support
 }
 
 impl View {
@@ -123,7 +121,7 @@ impl View {
                             let (buf, width, height) = pixel_ref.to_contiguous_buf();
                             let image = ImgVec::<RGBA8>::new(Vec::from(buf), width, height);
                             sender
-                                .send(FrameSource {
+                                .send(FullFrame {
                                     image: image,
                                     delay: frame.delay as i64 * 10_000_000,
                                 })
@@ -171,7 +169,7 @@ impl View {
                                 .collect();
                             let image = ImgVec::new(pixels, width as usize, height as usize);
                             sender
-                                .send(FrameSource {
+                                .send(FullFrame {
                                     image: image,
                                     delay: (frame.timestamp() - prev_timestamp) as i64 * 1_000_000,
                                 })
@@ -226,7 +224,7 @@ impl View {
                         let image = ImgVec::new(pixels, metadata.width as usize, metadata.height as usize);
 
                         sender
-                            .send(FrameSource { image: image, delay: 0 })
+                            .send(FullFrame { image: image, delay: 0 })
                             .expect("Failed to send frame source");
 
                         println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
@@ -362,7 +360,7 @@ impl View {
                                     let image = ImgVec::new(pixels, width as usize, height as usize);
 
                                     sender
-                                        .send(FrameSource {
+                                        .send(FullFrame {
                                             image: image,
                                             delay: delay,
                                         })
@@ -405,17 +403,15 @@ impl View {
     fn load_frame(&mut self, ctx: &mut PaintCtx) -> bool {
         if self.source.is_some() {
             let receiver = self.source.as_ref().unwrap();
-            if let Ok(source) = receiver.recv() {
-                let (buf, width, height) = source.image.into_contiguous_buf();
-                let img = ctx
+            if let Ok(full_frame) = receiver.recv() {
+                let (buf, width, height) = full_frame.image.into_contiguous_buf();
+                let image = ctx
                     .render_ctx
                     .make_image(width, height, buf.as_bytes(), ImageFormat::RgbaSeparate)
                     .expect("Failed to create image");
-                self.frames.push(Frame {
-                    img: img,
-                    width: width,
-                    height: height,
-                    delay: source.delay,
+                self.frames.push(CachedFrame {
+                    image: image,
+                    delay: full_frame.delay,
                 });
                 // Set the image's dimensions based on the first frame, unless we already have that info
                 if self.image_size.is_none() {
@@ -435,7 +431,7 @@ impl View {
         if self.frames.is_empty() {
             None
         } else {
-            Some(&self.frames[self.current_frame].img)
+            Some(&self.frames[self.current_frame].image)
         }
     }
 
@@ -455,7 +451,7 @@ impl View {
         // Add the post-frame delay to our counter
         self.current_delay += self.frames[self.current_frame].delay;
         // Return the frame
-        Some(&self.frames[self.current_frame].img)
+        Some(&self.frames[self.current_frame].image)
     }
 }
 
