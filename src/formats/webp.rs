@@ -22,27 +22,42 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
 
+use druid::kurbo::Size;
 use imgref::ImgVec;
 use rgb::RGBA8;
 use webp_animation::{ColorMode, Decoder};
 
 use crate::image::Frame;
 
-// TODO: Figure out if we can determine the whole image dimensions before the first frame and return it as Size
-pub fn open_async(path: &Path) -> Receiver<Frame> {
+pub fn open_async(path: &Path) -> (Receiver<Frame>, Size) {
     let buffer = std::fs::read(path).unwrap();
 
     let (sender, receiver) = channel();
 
-    let debug_filename = String::from(path.to_str().expect("WEBP path is invalid UTF-8"));
+    let debug_filename = String::from(path.to_str().expect("WebP path is invalid UTF-8"));
+
+    let decoder = Decoder::new(&buffer).unwrap();
+    let (width, height) = decoder.dimensions();
+    let size = Size::new(width as f64, height as f64);
+
+    // We need to drop & re-create the decoder because it doesn't implement Send.
+    std::mem::drop(decoder);
 
     thread::spawn(move || {
         let start = Instant::now();
         let decoder = Decoder::new(&buffer).unwrap();
-        let mut dec_iter = decoder.into_iter();
         let mut prev_timestamp = 0;
-        while let Some(frame) = dec_iter.next() {
-            let (width, height) = frame.dimensions();
+        for frame in decoder.into_iter() {
+            // The current implementation of webp_animation guarantees using the full image dimensions for every frame.
+            if frame.dimensions() != (width, height) {
+                println!(
+                    "Unexpected frame size for WebP decoding. Expected {} x {} but got {} x {}",
+                    width,
+                    height,
+                    frame.dimensions().0,
+                    frame.dimensions().1
+                );
+            }
             println!(
                 "Calculated {} frame delay: {} ms",
                 debug_filename,
@@ -82,5 +97,5 @@ pub fn open_async(path: &Path) -> Receiver<Frame> {
         println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
     });
 
-    receiver
+    (receiver, size)
 }

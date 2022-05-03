@@ -90,8 +90,8 @@ impl View {
                     let (receiver, image_size) = gif::open_async(path);
                     (Some(receiver), Some(image_size))
                 } else if ext == webp_ext {
-                    let receiver = webp::open_async(path);
-                    (Some(receiver), None)
+                    let (receiver, image_size) = webp::open_async(path);
+                    (Some(receiver), Some(image_size))
                 } else if ext == jpg_ext || ext == jpeg_ext {
                     let receiver = jpeg::open_async(path);
                     (Some(receiver), None)
