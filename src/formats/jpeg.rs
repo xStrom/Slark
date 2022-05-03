@@ -24,26 +24,29 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
 
+use druid::kurbo::Size;
 use imgref::ImgVec;
+use jpeg_decoder::Decoder;
 use rgb::RGBA8;
 
 use crate::image::Frame;
 
-// TODO: Figure out if we can determine the whole image dimensions before the first frame and return it as Size
-pub fn open_async(path: &Path) -> Receiver<Frame> {
+pub fn open_async(path: &Path) -> (Receiver<Frame>, Size) {
     let file = File::open(path).expect("Failed to open file");
 
     let (sender, receiver) = channel();
 
     let debug_filename = String::from(path.to_str().expect("JPEG path is invalid UTF-8"));
 
+    let mut decoder = Decoder::new(BufReader::new(file));
+    decoder.read_info().expect("Failed to read metadata");
+    let metadata = decoder.info().unwrap();
+    let size = Size::new(metadata.width as f64, metadata.height as f64);
+
     thread::spawn(move || {
         let start = Instant::now();
 
-        let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(file));
         let pixels = decoder.decode().expect("Failed to decode JPEG image");
-        let metadata = decoder.info().unwrap();
-
         let pixels = pixels
             .chunks(3)
             .map(|bytes| RGBA8 {
@@ -62,5 +65,5 @@ pub fn open_async(path: &Path) -> Receiver<Frame> {
         println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
     });
 
-    receiver
+    (receiver, size)
 }

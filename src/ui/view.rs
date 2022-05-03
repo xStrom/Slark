@@ -93,8 +93,8 @@ impl View {
                     let (receiver, image_size) = webp::open_async(path);
                     (Some(receiver), Some(image_size))
                 } else if ext == jpg_ext || ext == jpeg_ext {
-                    let receiver = jpeg::open_async(path);
-                    (Some(receiver), None)
+                    let (receiver, image_size) = jpeg::open_async(path);
+                    (Some(receiver), Some(image_size))
                 } else if ext == png_ext {
                     let (receiver, image_size) = png::open_async(path);
                     (Some(receiver), Some(image_size))
