@@ -22,9 +22,8 @@ use std::fs::read_dir;
 use druid::piet::Color;
 use druid::widget::Flex;
 use druid::widget::{CrossAxisAlignment, MainAxisAlignment};
-use druid::Widget;
-
 use druid::widget::{Padding, SizedBox};
+use druid::Widget;
 use druid::WidgetExt;
 
 use super::{Stats, Surface};

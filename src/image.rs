@@ -1,5 +1,5 @@
 /*
-    Copyright 2019-2022 Kaur Kuut <admin@kaurkuut.com>
+    Copyright 2022 Kaur Kuut <admin@kaurkuut.com>
 
     This file is part of Slark.
 
@@ -17,29 +17,11 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::env;
+use imgref::ImgVec;
+use rgb::RGBA8;
 
-use druid::{AppLauncher, LocalizedString, WindowDesc};
-
-mod formats;
-mod image;
-
-mod ui;
-use ui::ui_root;
-
-mod project;
-
-fn main() {
-    let filenames: Vec<String> = env::args().skip(1).collect();
-
-    let window = WindowDesc::<u64>::new(ui_root(filenames))
-        .title(LocalizedString::new("app_title").with_placeholder("Slark".to_string()))
-        //.window_size((400.0, 300.0))
-        //.with_min_size((300.0, 200.0));
-        .window_size((1024.0, 768.0))
-        .with_min_size((320.0, 240.0));
-    AppLauncher::with_window(window)
-        .use_simple_logger()
-        .launch(0)
-        .expect("launch failed");
+/// Represents a single frame of a potentially multi-frame image.
+pub struct Frame {
+    pub image: ImgVec<RGBA8>,
+    pub delay: i64,
 }

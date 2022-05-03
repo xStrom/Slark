@@ -19,9 +19,8 @@
 
 use druid::widget::prelude::*;
 use druid::widget::Label;
-use druid::Data;
-
 use druid::Application;
+use druid::Data;
 
 pub struct Stats {
     frame_times: [u64; Stats::FRAME_TIME_COUNT],

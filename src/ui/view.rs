@@ -18,21 +18,16 @@
 */
 
 use std::ffi::OsStr;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver};
-use std::thread;
-use std::time::Instant;
+use std::sync::mpsc::Receiver;
 
 use druid::piet::{Color, ImageFormat, InterpolationMode, RenderContext};
 use druid::widget::prelude::*;
 use druid::Data;
+use rgb::ComponentBytes;
 
-use gif_dispose::*;
-use imgref::ImgVec;
-use png::ColorType;
-use rgb::{ComponentBytes, RGBA8};
+use crate::formats::{gif, jpeg, png, webp};
+use crate::image::Frame;
 
 #[derive(Data, Clone)]
 pub struct ViewData {
@@ -67,18 +62,13 @@ impl ViewData {
 }
 
 pub struct View {
-    source: Option<Receiver<FullFrame>>,
+    pending_frames: Option<Receiver<Frame>>,
     image_size: Option<Size>,
     frames: Vec<CachedFrame>,
     current_frame: usize,
     current_delay: i64,
 
     need_legit_layout: bool, // true when we've had to give a fake size in layout
-}
-
-struct FullFrame {
-    image: ImgVec<RGBA8>,
-    delay: i64,
 }
 
 struct CachedFrame {
@@ -94,332 +84,67 @@ impl View {
         let jpeg_ext = OsStr::new("jpeg");
         let png_ext = OsStr::new("png");
 
-        match path.extension() {
+        let (receiver, image_size) = match path.extension() {
             Some(ext) => {
                 if ext == gif_ext {
-                    let file = File::open(path).expect("Failed to open file");
-                    let mut gif_opts = gif::DecodeOptions::new();
-                    gif_opts.set_color_output(gif::ColorOutput::Indexed);
-
-                    let mut decoder = gif_opts.read_info(file).expect("Failed to read info");
-                    let width = decoder.width() as usize;
-                    let height = decoder.height() as usize;
-                    let global_palette = decoder.global_palette().map(View::convert_pixels);
-
-                    let mut screen = Screen::new(width, height, RGBA8::default(), global_palette);
-
-                    let (sender, receiver) = channel();
-
-                    let debug_filename = String::from(path.to_str().expect("GIF path is invalid UTF-8"));
-
-                    thread::spawn(move || {
-                        let start = Instant::now();
-                        // NOTE: The decoding/bliting is surprisingly slow, especially in debug builds
-                        while let Some(frame) = decoder.read_next_frame().expect("Failed to read next frame") {
-                            screen.blit_frame(frame).expect("Failed to blit frame");
-                            let pixel_ref = screen.pixels.as_ref();
-                            let (buf, width, height) = pixel_ref.to_contiguous_buf();
-                            let image = ImgVec::<RGBA8>::new(Vec::from(buf), width, height);
-                            sender
-                                .send(FullFrame {
-                                    image: image,
-                                    delay: frame.delay as i64 * 10_000_000,
-                                })
-                                .expect("Failed to send frame source");
-                        }
-                        println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
-                    });
-
-                    View {
-                        source: Some(receiver),
-                        image_size: Some(Size::new(width as f64, height as f64)),
-                        frames: Vec::new(),
-                        current_frame: 0,
-                        current_delay: 0,
-                        need_legit_layout: false,
-                    }
+                    let (receiver, image_size) = gif::open_async(path);
+                    (Some(receiver), Some(image_size))
                 } else if ext == webp_ext {
-                    let buffer = std::fs::read(path).unwrap();
-
-                    let (sender, receiver) = channel();
-
-                    let debug_filename = String::from(path.to_str().expect("WEBP path is invalid UTF-8"));
-
-                    thread::spawn(move || {
-                        let start = Instant::now();
-                        let decoder = webp_animation::Decoder::new(&buffer).unwrap();
-                        let mut dec_iter = decoder.into_iter();
-                        let mut prev_timestamp = 0;
-                        while let Some(frame) = dec_iter.next() {
-                            let (width, height) = frame.dimensions();
-                            println!(
-                                "Calculated {} frame delay: {} ms",
-                                debug_filename,
-                                (frame.timestamp() - prev_timestamp)
-                            );
-                            let pixels = frame
-                                .data()
-                                .chunks(4)
-                                .map(|bytes| RGBA8 {
-                                    r: bytes[0],
-                                    g: bytes[1],
-                                    b: bytes[2],
-                                    a: bytes[3],
-                                })
-                                .collect();
-                            let image = ImgVec::new(pixels, width as usize, height as usize);
-                            sender
-                                .send(FullFrame {
-                                    image: image,
-                                    delay: (frame.timestamp() - prev_timestamp) as i64 * 1_000_000,
-                                })
-                                .expect("Failed to send frame source");
-                            prev_timestamp = frame.timestamp();
-                        }
-                        println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
-                    });
-
-                    View {
-                        source: Some(receiver),
-                        image_size: None, // TODO: Probably should get the total image dimensions here, not depend on the first frame which might be smaller.
-                        frames: Vec::new(),
-                        current_frame: 0,
-                        current_delay: 0,
-                        need_legit_layout: false,
-                    }
+                    let receiver = webp::open_async(path);
+                    (Some(receiver), None)
                 } else if ext == jpg_ext || ext == jpeg_ext {
-                    let file = File::open(path).expect("Failed to open file");
-
-                    let (sender, receiver) = channel();
-
-                    let debug_filename = String::from(path.to_str().expect("JPEG path is invalid UTF-8"));
-
-                    thread::spawn(move || {
-                        let start = Instant::now();
-
-                        let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(file));
-                        let pixels = decoder.decode().expect("Failed to decode JPEG image");
-                        let metadata = decoder.info().unwrap();
-
-                        let mut data = Vec::<u8>::with_capacity(metadata.width as usize * metadata.height as usize * 4);
-                        let mut i = 0;
-                        for b in pixels.iter() {
-                            data.push(*b);
-                            i += 1;
-                            if i == 3 {
-                                i = 0;
-                                data.push(255);
-                            }
-                        }
-
-                        let pixels = data
-                            .chunks(4)
-                            .map(|bytes| RGBA8 {
-                                r: bytes[0],
-                                g: bytes[1],
-                                b: bytes[2],
-                                a: bytes[3],
-                            })
-                            .collect();
-                        let image = ImgVec::new(pixels, metadata.width as usize, metadata.height as usize);
-
-                        sender
-                            .send(FullFrame { image: image, delay: 0 })
-                            .expect("Failed to send frame source");
-
-                        println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
-                    });
-
-                    View {
-                        source: Some(receiver),
-                        image_size: None,
-                        frames: Vec::new(),
-                        current_frame: 0,
-                        current_delay: 0,
-                        need_legit_layout: false,
-                    }
+                    let receiver = jpeg::open_async(path);
+                    (Some(receiver), None)
                 } else if ext == png_ext {
-                    let file = File::open(path).expect("Failed to open file");
-
-                    let (sender, receiver) = channel();
-
-                    let debug_filename = String::from(path.to_str().expect("JPEG path is invalid UTF-8"));
-
-                    thread::spawn(move || {
-                        let start = Instant::now();
-
-                        // TODO: Make sure that transparency works properly in APNG.
-                        // TODO: Figure out the issues with the walking APNG.
-
-                        let decoder = png::Decoder::new(file);
-                        let mut reader = decoder.read_info().unwrap();
-
-                        let info = reader.info();
-                        println!("PNG tRNS: {:?}", info.trns);
-                        println!("PNG palette: {:?}", info.palette);
-
-                        let trns = if let Some(trns) = &info.trns {
-                            let mut vec: Vec<u8> = Vec::new();
-                            for b in trns.iter() {
-                                vec.push(*b);
-                            }
-                            Some(vec)
-                        } else {
-                            None
-                        };
-
-                        // Allocate the output buffer.
-                        let mut buf = vec![0; reader.output_buffer_size()];
-                        // Read the next frame. An APNG might contain multiple frames.
-                        loop {
-                            match reader.next_frame(&mut buf) {
-                                Ok(info) => {
-                                    let (mut width, mut height) = (info.width as usize, info.height as usize);
-
-                                    // Grab the bytes of the image.
-                                    let bytes = &buf[..info.buffer_size()];
-
-                                    let mut delay = 0;
-                                    // Inspect more details of the last read frame.
-                                    if let Some(more_info) = reader.info().frame_control {
-                                        let mut den = more_info.delay_den as u64;
-                                        if den == 0 {
-                                            den = 100;
-                                        }
-                                        delay = (1_000_000_000 * (more_info.delay_num as u64) / den) as i64;
-
-                                        (width, height) = (more_info.width as usize, more_info.height as usize);
-
-                                        if more_info.x_offset != 0 || more_info.y_offset != 0 {
-                                            println!("Saw offsets: {} {}", more_info.x_offset, more_info.y_offset);
-                                        }
-                                    }
-
-                                    println!(
-                                        "Found another PNG frame for {} which has {} bytes of {:?} and {} x {}",
-                                        debug_filename,
-                                        bytes.len(),
-                                        info.color_type,
-                                        info.width,
-                                        info.height
-                                    );
-
-                                    let mut data =
-                                        Vec::<u8>::with_capacity(info.width as usize * info.height as usize * 4);
-
-                                    match info.color_type {
-                                        ColorType::Grayscale => {
-                                            println!("Unimplemented color type {:?} for PNG.", info.color_type)
-                                        }
-                                        ColorType::GrayscaleAlpha => {
-                                            println!("Unimplemented color type {:?} for PNG.", info.color_type)
-                                        }
-                                        ColorType::Indexed => {
-                                            println!("Unimplemented color type {:?} for PNG.", info.color_type)
-                                        }
-                                        ColorType::Rgb => {
-                                            let mut i = 0;
-                                            for b in bytes.iter() {
-                                                data.push(*b);
-                                                i += 1;
-                                                if i == 3 {
-                                                    i = 0;
-                                                    match &trns {
-                                                        Some(trns) => {
-                                                            let len = data.len();
-                                                            if trns[0] == data[len - 3]
-                                                                && trns[1] == data[len - 2]
-                                                                && trns[2] == data[len - 1]
-                                                            {
-                                                                data.push(0);
-                                                            } else {
-                                                                data.push(255);
-                                                            }
-                                                        }
-                                                        None => data.push(255),
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        ColorType::Rgba => {
-                                            for b in bytes.iter() {
-                                                data.push(*b);
-                                            }
-                                        }
-                                    }
-
-                                    let pixels = data
-                                        .chunks(4)
-                                        .map(|bytes| RGBA8 {
-                                            r: bytes[0],
-                                            g: bytes[1],
-                                            b: bytes[2],
-                                            a: bytes[3],
-                                        })
-                                        .collect();
-                                    let image = ImgVec::new(pixels, width as usize, height as usize);
-
-                                    sender
-                                        .send(FullFrame {
-                                            image: image,
-                                            delay: delay,
-                                        })
-                                        .expect("Failed to send frame source");
-                                }
-                                Err(error) => {
-                                    println!("PNG reader error: {}", error);
-                                    break;
-                                }
-                            }
-                        }
-
-                        println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
-                    });
-
-                    View {
-                        source: Some(receiver),
-                        image_size: None,
-                        frames: Vec::new(),
-                        current_frame: 0,
-                        current_delay: 0,
-                        need_legit_layout: false,
-                    }
+                    let receiver = png::open_async(path);
+                    (Some(receiver), None)
                 } else {
-                    panic!("Not a supported extension!");
+                    println!("WARNING: Unsupported file extension: {}", ext.to_str().unwrap());
+                    (None, None)
                 }
             }
             _ => {
-                panic!("Not a supported extension!");
+                println!(
+                    "WARNING: Slark needs a proper file extension for format detection. {}",
+                    path.to_str().unwrap()
+                );
+                (None, None)
             }
-        }
-    }
+        };
 
-    #[rustfmt::skip]
-    fn convert_pixels<T: From<RGB8>>(palette_bytes: &[u8]) -> Vec<T> {
-        palette_bytes.chunks(3).map(|byte| {RGB8{r: byte[0], g: byte[1], b: byte[2]}.into()}).collect()
+        View {
+            pending_frames: receiver,
+            image_size: image_size,
+            frames: Vec::new(),
+            current_frame: 0,
+            current_delay: 0,
+            need_legit_layout: false,
+        }
     }
 
     // Returns `true` if a new frame was loaded.
     fn load_frame(&mut self, ctx: &mut PaintCtx) -> bool {
-        if self.source.is_some() {
-            let receiver = self.source.as_ref().unwrap();
-            if let Ok(full_frame) = receiver.recv() {
-                let (buf, width, height) = full_frame.image.into_contiguous_buf();
+        if self.pending_frames.is_some() {
+            let receiver = self.pending_frames.as_ref().unwrap();
+            if let Ok(frame) = receiver.recv() {
+                let (buf, width, height) = frame.image.into_contiguous_buf();
                 let image = ctx
                     .render_ctx
                     .make_image(width, height, buf.as_bytes(), ImageFormat::RgbaSeparate)
                     .expect("Failed to create image");
                 self.frames.push(CachedFrame {
                     image: image,
-                    delay: full_frame.delay,
+                    delay: frame.delay,
                 });
                 // Set the image's dimensions based on the first frame, unless we already have that info
                 if self.image_size.is_none() {
                     self.image_size = Some(Size::new(width as f64, height as f64));
+                } else if self.image_size.unwrap() != Size::new(width as f64, height as f64) {
+                    println!("WARNING: Probably a broken image format import code path. View expects all frames to be with full dimensions. {} != {} ", self.image_size.unwrap(), Size::new(width as f64, height as f64));
                 }
                 return true;
             } else {
-                self.source = None;
+                self.pending_frames = None;
             }
         }
         false
