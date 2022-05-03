@@ -23,42 +23,44 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
 
+use druid::kurbo::Size;
 use imgref::ImgVec;
 use png::ColorType;
 use rgb::RGBA8;
 
 use crate::image::Frame;
 
-// TODO: Figure out if we can determine the whole image dimensions before the first frame and return it as Size
-pub fn open_async(path: &Path) -> Receiver<Frame> {
+pub fn open_async(path: &Path) -> (Receiver<Frame>, Size) {
     let file = File::open(path).expect("Failed to open file");
 
     let (sender, receiver) = channel();
 
     let debug_filename = String::from(path.to_str().expect("PNG path is invalid UTF-8"));
 
+    let decoder = png::Decoder::new(file);
+    let mut reader = decoder.read_info().unwrap();
+
+    let info = reader.info();
+    println!("PNG tRNS: {:?}", info.trns);
+    println!("PNG palette: {:?}", info.palette);
+
+    let size = Size::new(info.width as f64, info.height as f64);
+
+    let trns = if let Some(trns) = &info.trns {
+        let mut vec: Vec<u8> = Vec::new();
+        for b in trns.iter() {
+            vec.push(*b);
+        }
+        Some(vec)
+    } else {
+        None
+    };
+
     thread::spawn(move || {
         let start = Instant::now();
 
         // TODO: Make sure that transparency works properly in APNG.
         // TODO: Figure out the issues with the walking APNG.
-
-        let decoder = png::Decoder::new(file);
-        let mut reader = decoder.read_info().unwrap();
-
-        let info = reader.info();
-        println!("PNG tRNS: {:?}", info.trns);
-        println!("PNG palette: {:?}", info.palette);
-
-        let trns = if let Some(trns) = &info.trns {
-            let mut vec: Vec<u8> = Vec::new();
-            for b in trns.iter() {
-                vec.push(*b);
-            }
-            Some(vec)
-        } else {
-            None
-        };
 
         // Allocate the output buffer.
         let mut buf = vec![0; reader.output_buffer_size()];
@@ -167,5 +169,5 @@ pub fn open_async(path: &Path) -> Receiver<Frame> {
         println!("Fully decoded {} in {:?}", debug_filename, start.elapsed());
     });
 
-    receiver
+    (receiver, size)
 }

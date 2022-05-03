@@ -96,8 +96,8 @@ impl View {
                     let receiver = jpeg::open_async(path);
                     (Some(receiver), None)
                 } else if ext == png_ext {
-                    let receiver = png::open_async(path);
-                    (Some(receiver), None)
+                    let (receiver, image_size) = png::open_async(path);
+                    (Some(receiver), Some(image_size))
                 } else {
                     println!("WARNING: Unsupported file extension: {}", ext.to_str().unwrap());
                     (None, None)
