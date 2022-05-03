@@ -24,6 +24,7 @@ use std::time::Instant;
 
 use imgref::ImgVec;
 use rgb::RGBA8;
+use webp_animation::{ColorMode, Decoder};
 
 use crate::image::Frame;
 
@@ -37,7 +38,7 @@ pub fn open_async(path: &Path) -> Receiver<Frame> {
 
     thread::spawn(move || {
         let start = Instant::now();
-        let decoder = webp_animation::Decoder::new(&buffer).unwrap();
+        let decoder = Decoder::new(&buffer).unwrap();
         let mut dec_iter = decoder.into_iter();
         let mut prev_timestamp = 0;
         while let Some(frame) = dec_iter.next() {
@@ -47,16 +48,28 @@ pub fn open_async(path: &Path) -> Receiver<Frame> {
                 debug_filename,
                 (frame.timestamp() - prev_timestamp)
             );
-            let pixels = frame
-                .data()
-                .chunks(4)
-                .map(|bytes| RGBA8 {
-                    r: bytes[0],
-                    g: bytes[1],
-                    b: bytes[2],
-                    a: bytes[3],
-                })
-                .collect();
+            let pixels = match frame.color_mode() {
+                ColorMode::Rgba => frame
+                    .data()
+                    .chunks(4)
+                    .map(|bytes| RGBA8 {
+                        r: bytes[0],
+                        g: bytes[1],
+                        b: bytes[2],
+                        a: bytes[3],
+                    })
+                    .collect(),
+                ColorMode::Bgra => frame
+                    .data()
+                    .chunks(4)
+                    .map(|bytes| RGBA8 {
+                        r: bytes[2],
+                        g: bytes[1],
+                        b: bytes[0],
+                        a: bytes[3],
+                    })
+                    .collect(),
+            };
             let image = ImgVec::new(pixels, width as usize, height as usize);
             sender
                 .send(Frame {
