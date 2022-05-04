@@ -101,6 +101,7 @@ impl Project {
             id: next_id,
             path: path,
             origin: Point::ZERO,
+            zoom: 0,
         });
         self.layers.push(next_id);
         self.state.dirty = true;
@@ -110,6 +111,15 @@ impl Project {
         if let Some(image) = self.images.iter_mut().find(|image| image.id == image_id) {
             if image.origin != origin {
                 image.origin = origin;
+                self.state.dirty = true;
+            }
+        }
+    }
+
+    pub fn set_zoom(&mut self, image_id: usize, zoom: i32) {
+        if let Some(image) = self.images.iter_mut().find(|image| image.id == image_id) {
+            if image.zoom != zoom {
+                image.zoom = zoom;
                 self.state.dirty = true;
             }
         }
@@ -142,6 +152,8 @@ pub struct Image {
     path: PathBuf,
     #[serde(with = "PointDef")]
     origin: Point,
+    #[serde(default)]
+    zoom: i32,
 }
 
 impl Image {
@@ -155,6 +167,10 @@ impl Image {
 
     pub fn origin(&self) -> &Point {
         &self.origin
+    }
+
+    pub fn zoom(&self) -> i32 {
+        return self.zoom;
     }
 }
 

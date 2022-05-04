@@ -126,6 +126,8 @@ impl Widget<u64> for Surface {
                     } else if mouse_event.wheel_delta.y > 0.0 {
                         self.view_trackers[view_id].data.zoom(-1);
                     }
+                    self.project
+                        .set_zoom(self.view_trackers[view_id].id, self.view_trackers[view_id].data.zoom);
                     ctx.request_update();
                     println!("Scale factor now: {}", self.view_trackers[view_id].data.scale_factor());
                 }
@@ -261,7 +263,7 @@ impl ViewTracker {
             origin: *project_image.origin(),
             data: ViewData {
                 selected: false,
-                zoom: 0,
+                zoom: project_image.zoom(),
             },
         }
     }

@@ -2,17 +2,25 @@
 
 Slark is a tool for viewing static and animated images.
 
+```sh
+cargo run /path/to/image.gif
+```
+
 You can load multiple images into Slark and then drag them around the canvas.
 
-Use PGUP / PGDN to control their Z-ordering.
+```sh
+cargo run /path/to/image.gif /and/another.webp third.jpg
+```
 
-Ctrl+S / Ctrl+O to save / open a project file which remembers all the opened images and their location and z-order.
+Use PGUP / PGDN to control their Z-ordering. Mouse wheel to zoom.
+
+Ctrl+S / Ctrl+O to save / open a project file which remembers all the opened images and their location, z-order, and zoom level.
 
 Supported image formats are GIF, WebP, JPEG, and PNG.
 
 ## Project status
 
-Slark is currently in the prototyping stage. Nothing is guaranteed to work!
+Slark is in early development. There are plenty of bugs and development time is limited.
 
 ## License
 
