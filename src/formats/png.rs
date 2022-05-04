@@ -59,8 +59,10 @@ pub fn open_async(path: &Path) -> (Receiver<Frame>, Size) {
     thread::spawn(move || {
         let start = Instant::now();
 
+        // TODO: Implement a screen for properly drawing the image in vacuum.
+
         // TODO: Make sure that transparency works properly in APNG.
-        // TODO: Figure out the issues with the walking APNG.
+        // TODO: Figure out the issues with the walking APNG. Use the frame offsets correctly via a screen implementation.
 
         // Allocate the output buffer.
         let mut buf = vec![0; reader.output_buffer_size()];

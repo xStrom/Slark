@@ -47,6 +47,7 @@ pub fn open_async(path: &Path) -> (Receiver<Frame>, Size) {
         let start = Instant::now();
 
         let pixels = decoder.decode().expect("Failed to decode JPEG image");
+        // TODO: Look into metadata.pixel_format and whether we need to throw a match statement in here to handle differences.
         let pixels = pixels
             .chunks(3)
             .map(|bytes| RGBA8 {
