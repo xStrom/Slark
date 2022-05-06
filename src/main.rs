@@ -18,6 +18,7 @@
 */
 
 use std::env;
+use std::sync::mpsc;
 
 use druid::{AppLauncher, LocalizedString, WindowDesc};
 
@@ -27,10 +28,19 @@ mod image;
 mod ui;
 use ui::ui_root;
 
+mod pool;
 mod project;
 
 fn main() {
     let filenames: Vec<String> = env::args().skip(1).collect();
+
+    let (sender, receiver) = mpsc::channel();
+
+    let exit = pool::initialize(receiver, &filenames);
+    if exit {
+        println!("Pool initialization requested immediate application exit.");
+        return;
+    }
 
     let window = WindowDesc::<u64>::new(ui_root(filenames))
         .title(LocalizedString::new("app_title").with_placeholder("Slark".to_string()))
@@ -38,8 +48,16 @@ fn main() {
         //.with_min_size((300.0, 200.0));
         .window_size((1024.0, 768.0))
         .with_min_size((320.0, 240.0));
-    AppLauncher::with_window(window)
-        .use_simple_logger()
-        .launch(0)
-        .expect("launch failed");
+    let launcher = AppLauncher::with_window(window).use_simple_logger();
+
+    let event_sink = launcher.get_external_handle();
+
+    match sender.send(event_sink) {
+        Ok(_) => (),
+        Err(error) => {
+            eprintln!("Failed to send event sink: {}", error);
+        }
+    }
+
+    launcher.launch(0).expect("launch failed");
 }

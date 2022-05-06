@@ -21,10 +21,12 @@ use std::path::{Path, PathBuf};
 
 use druid::kurbo::{Point, Rect, Vec2};
 use druid::widget::prelude::*;
-use druid::{commands, Command, KbKey, Target, WidgetPod};
+use druid::{commands, Command, KbKey, Selector, Target, WidgetPod};
 
 use crate::project::{Image as ProjectImage, Project};
 use crate::ui::view::{View, ViewData};
+
+pub const COMMAND_ADD_IMAGE: Selector<String> = Selector::new("slark.add_image");
 
 pub struct Surface {
     project: Project,
@@ -58,6 +60,13 @@ impl Surface {
         };
         self.active_view = None;
         self.drag = None;
+    }
+
+    pub fn add(&mut self, filename: PathBuf) {
+        self.project.add(filename);
+        let project_image = self.project.images().last().unwrap();
+        self.view_trackers
+            .push(ViewTracker::new(self.project.path(), project_image));
     }
 }
 
@@ -173,7 +182,13 @@ impl Widget<u64> for Surface {
                 } else if command.is(commands::OPEN_FILE) {
                     let info = command.get_unchecked(commands::OPEN_FILE);
                     self.set_project(Project::open(PathBuf::from(info.path())));
-                    // Are the following needed?
+                    // Need to inform of children changes
+                    ctx.children_changed();
+                    hacky_children_added = true;
+                } else if command.is(COMMAND_ADD_IMAGE) {
+                    let filename = command.get_unchecked(COMMAND_ADD_IMAGE);
+                    self.add(filename.into());
+                    // Need to inform of children changes
                     ctx.children_changed();
                     hacky_children_added = true;
                 }
