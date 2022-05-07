@@ -68,6 +68,41 @@ impl Surface {
         self.view_trackers
             .push(ViewTracker::new(self.project.path(), project_image));
     }
+
+    // Super fragile function, must be same as the project removal.
+    pub fn remove(&mut self, view_id: usize) {
+        if self.view_trackers.is_empty() || self.view_trackers.len() <= view_id {
+            return;
+        } else if self.view_trackers.len() == 1 {
+            self.view_trackers.clear();
+            self.project.remove(view_id);
+            self.drag = None;
+            self.active_view = None;
+        } else {
+            let last_id = self.view_trackers.len() - 1;
+            self.view_trackers[last_id].id = view_id;
+            self.view_trackers.swap(view_id, last_id);
+            self.view_trackers.pop();
+            self.project.remove(view_id);
+
+            if let Some(drag) = &self.drag {
+                if drag.view_id == view_id {
+                    self.drag = None;
+                } else if drag.view_id == last_id {
+                    self.drag = Some(Drag {
+                        view_id: view_id,
+                        start: drag.start,
+                    });
+                }
+            }
+
+            self.active_view = match self.active_view {
+                Some(a_id) if a_id == view_id => None,
+                Some(a_id) if a_id == last_id => Some(view_id),
+                old => old,
+            };
+        }
+    }
 }
 
 impl Widget<u64> for Surface {
@@ -81,8 +116,8 @@ impl Widget<u64> for Surface {
                     ctx.request_focus();
                     ctx.set_active(true);
                     // Always clear the currently active view
-                    if let Some(active_image) = self.active_view {
-                        self.view_trackers[active_image].data.selected = false;
+                    if let Some(view_id) = self.active_view {
+                        self.view_trackers[view_id].data.selected = false;
                         self.active_view = None;
                     }
                     // Locate the topmost layer that gets hit
@@ -142,14 +177,20 @@ impl Widget<u64> for Surface {
                 }
             }
             Event::KeyUp(key_event) => match &key_event.key {
+                KbKey::Delete => {
+                    if let Some(view_id) = self.active_view {
+                        self.remove(view_id);
+                        ctx.children_changed();
+                    }
+                }
                 KbKey::PageUp => {
-                    if let Some(active_view) = self.active_view {
-                        self.project.shift_layer(active_view, 1);
+                    if let Some(view_id) = self.active_view {
+                        self.project.shift_layer(view_id, 1);
                     }
                 }
                 KbKey::PageDown => {
-                    if let Some(active_view) = self.active_view {
-                        self.project.shift_layer(active_view, -1);
+                    if let Some(view_id) = self.active_view {
+                        self.project.shift_layer(view_id, -1);
                     }
                 }
                 KbKey::Character(ch) => {

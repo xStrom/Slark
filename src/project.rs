@@ -107,6 +107,25 @@ impl Project {
         self.state.dirty = true;
     }
 
+    pub fn remove(&mut self, image_id: usize) {
+        if self.images.is_empty() || self.images.len() <= image_id {
+            return;
+        } else if self.images.len() == 1 {
+            self.images.clear();
+            self.layers.clear();
+        } else {
+            let last_id = self.images.len() - 1;
+            self.images[last_id].id = image_id;
+            self.images.swap(image_id, last_id);
+            self.images.pop();
+            self.layers
+                .remove(self.layers.iter().position(|id| *id == image_id).unwrap());
+            if let Some(pos) = self.layers.iter().position(|id| *id == last_id) {
+                self.layers[pos] = image_id;
+            }
+        }
+    }
+
     pub fn set_origin(&mut self, image_id: usize, origin: Point) {
         if let Some(image) = self.images.iter_mut().find(|image| image.id == image_id) {
             if image.origin != origin {
