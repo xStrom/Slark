@@ -25,11 +25,13 @@ use druid::{commands, Command, KbKey, Selector, Target, WidgetPod};
 
 use crate::project::{Image as ProjectImage, Project};
 use crate::ui::view::{View, ViewData};
+use crate::ui::{Tile, Tileize};
 
 pub const COMMAND_ADD_IMAGE: Selector<String> = Selector::new("slark.add_image");
 
 pub struct Surface {
     project: Project,
+    size: Size,
     view_trackers: Vec<ViewTracker>,
     active_view: Option<usize>,
     drag: Option<Drag>,
@@ -43,6 +45,7 @@ impl Surface {
         }
         Surface {
             project: project,
+            size: Size::ZERO,
             view_trackers: view_trackers,
             active_view: None,
             drag: None,
@@ -102,6 +105,34 @@ impl Surface {
                 old => old,
             };
         }
+    }
+
+    /// Automatically change the location and zoom factor of all the images in order to fit them all.
+    pub fn tileize(&mut self, ctx: &mut EventCtx) {
+        let mut tileize = Tileize::new(self.size);
+
+        // Add the images
+        for view_tracker in &self.view_trackers {
+            if let Some(image_size) = view_tracker.widget_pod.widget().image_size() {
+                tileize.add(Tile::new(
+                    view_tracker.id,
+                    view_tracker.origin,
+                    image_size,
+                    view_tracker.data.zoom,
+                ));
+            } // .. and ignore the not-yet-loaded views
+        }
+
+        // Do the magic
+        tileize.fit();
+
+        // Apply the changes
+        for tile in tileize.tiles() {
+            self.view_trackers[tile.id()].origin = tile.origin();
+            self.view_trackers[tile.id()].data.zoom = tile.zoom();
+        }
+
+        ctx.request_layout();
     }
 }
 
@@ -166,14 +197,17 @@ impl Widget<u64> for Surface {
             Event::Wheel(mouse_event) => {
                 if let Some(view_id) = self.active_view {
                     if mouse_event.wheel_delta.y < 0.0 {
-                        self.view_trackers[view_id].data.zoom(1);
+                        self.view_trackers[view_id].data.zoom.turn_the_knob(1);
                     } else if mouse_event.wheel_delta.y > 0.0 {
-                        self.view_trackers[view_id].data.zoom(-1);
+                        self.view_trackers[view_id].data.zoom.turn_the_knob(-1);
                     }
                     self.project
                         .set_zoom(self.view_trackers[view_id].id, self.view_trackers[view_id].data.zoom);
                     ctx.request_update();
-                    println!("Scale factor now: {}", self.view_trackers[view_id].data.scale_factor());
+                    println!(
+                        "Scale factor now: {}",
+                        self.view_trackers[view_id].data.zoom.scale_factor()
+                    );
                 }
             }
             Event::KeyUp(key_event) => match &key_event.key {
@@ -192,6 +226,9 @@ impl Widget<u64> for Surface {
                     if let Some(view_id) = self.active_view {
                         self.project.shift_layer(view_id, -1);
                     }
+                }
+                KbKey::Home => {
+                    self.tileize(ctx);
                 }
                 KbKey::Character(ch) => {
                     if key_event.mods.ctrl() {
@@ -284,9 +321,10 @@ impl Widget<u64> for Surface {
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, _data: &u64, env: &Env) {
+        // Store our size
+        self.size = ctx.size();
         // Clip the overflow
-        let size = ctx.size();
-        ctx.render_ctx.clip(Rect::from_origin_size(Point::ZERO, size));
+        ctx.render_ctx.clip(Rect::from_origin_size(Point::ZERO, self.size));
 
         // Paint all the views in the configured layer order
         for &id in self.project.layers().iter() {
@@ -319,7 +357,7 @@ impl ViewTracker {
             origin: *project_image.origin(),
             data: ViewData {
                 selected: false,
-                zoom: project_image.zoom(),
+                zoom: *project_image.zoom(),
             },
         }
     }

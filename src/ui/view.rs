@@ -28,37 +28,12 @@ use rgb::ComponentBytes;
 
 use crate::formats::{gif, jpeg, png, webp};
 use crate::image::Frame;
+use crate::ui::Zoom;
 
 #[derive(Data, Clone)]
 pub struct ViewData {
     pub selected: bool,
-    pub zoom: i32, // Use the zoom method to change
-}
-
-impl ViewData {
-    pub fn zoom(&mut self, delta: i32) {
-        let old_zoom = self.zoom;
-        let old_scale = self.scale_factor();
-        self.zoom = self.zoom + delta;
-        // If the scale factor didn't change, revert the zoom change
-        if self.scale_factor() == old_scale {
-            self.zoom = old_zoom;
-        }
-    }
-
-    pub fn scale_factor(&self) -> f64 {
-        if self.zoom < 0 {
-            let mut scale = 1.1f64.powi(self.zoom);
-            if scale < 0.1 {
-                scale = 0.1
-            }
-            scale
-        } else if self.zoom > 0 {
-            1.1f64.powi(self.zoom)
-        } else {
-            1.0
-        }
-    }
+    pub zoom: Zoom, // Use the zoom method to change
 }
 
 pub struct View {
@@ -120,6 +95,10 @@ impl View {
             current_delay: 0,
             need_legit_layout: false,
         }
+    }
+
+    pub fn image_size(&self) -> Option<Size> {
+        self.image_size
     }
 
     // Returns `true` if a new frame was loaded.
@@ -219,10 +198,10 @@ impl Widget<ViewData> for View {
     fn layout(&mut self, _ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &ViewData, _env: &Env) -> Size {
         bc.debug_check("Image");
         let size = match self.image_size {
-            Some(size) => size * data.scale_factor(),
+            Some(size) => size * data.zoom.scale_factor(),
             None => {
                 self.need_legit_layout = true;
-                Size::new(100.0, 100.0) * data.scale_factor()
+                Size::new(100.0, 100.0) * data.zoom.scale_factor()
             }
         };
         // TODO: Should we ignore constraints to be able to return a non-integer HiDPI-aware size?

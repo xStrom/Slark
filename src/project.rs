@@ -26,6 +26,8 @@ use druid::kurbo::Point;
 use druid::{FileDialogOptions, FileSpec};
 use serde::{Deserialize, Serialize};
 
+use crate::ui::Zoom;
+
 const PROJECT_FILE_TYPE: FileSpec = FileSpec::new("Slark project", &["ark"]);
 
 #[derive(Serialize, Deserialize)]
@@ -101,7 +103,7 @@ impl Project {
             id: next_id,
             path: path,
             origin: Point::ZERO,
-            zoom: 0,
+            zoom: Zoom::default(),
         });
         self.layers.push(next_id);
         self.state.dirty = true;
@@ -135,7 +137,7 @@ impl Project {
         }
     }
 
-    pub fn set_zoom(&mut self, image_id: usize, zoom: i32) {
+    pub fn set_zoom(&mut self, image_id: usize, zoom: Zoom) {
         if let Some(image) = self.images.iter_mut().find(|image| image.id == image_id) {
             if image.zoom != zoom {
                 image.zoom = zoom;
@@ -172,7 +174,7 @@ pub struct Image {
     #[serde(with = "PointDef")]
     origin: Point,
     #[serde(default)]
-    zoom: i32,
+    zoom: Zoom,
 }
 
 impl Image {
@@ -188,8 +190,8 @@ impl Image {
         &self.origin
     }
 
-    pub fn zoom(&self) -> i32 {
-        return self.zoom;
+    pub fn zoom(&self) -> &Zoom {
+        &self.zoom
     }
 }
 

@@ -17,9 +17,6 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-mod view;
-pub use view::*;
-
 mod root;
 pub use root::ui_root;
 
@@ -28,3 +25,12 @@ pub use stats::*;
 
 mod surface;
 pub use surface::*;
+
+mod tileize;
+pub use tileize::*;
+
+mod view;
+pub use view::*;
+
+mod zoom;
+pub use zoom::*;
