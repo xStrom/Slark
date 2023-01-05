@@ -49,7 +49,7 @@ impl Tileize {
         //       reduce some zoom levels if not.
 
         let tiles_len = self.tiles.len();
-        for i in (0..tiles_len) {
+        for i in 0..tiles_len {
             if i == 0 {
                 self.tiles[i].origin = Point::ZERO;
                 continue;

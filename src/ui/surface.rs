@@ -311,9 +311,7 @@ impl Widget<u64> for Surface {
             view_tracker
                 .widget_pod
                 .layout(ctx, &BoxConstraints::UNBOUNDED, &view_tracker.data, env);
-            view_tracker
-                .widget_pod
-                .set_origin(ctx, &view_tracker.data, env, view_tracker.origin);
+            view_tracker.widget_pod.set_origin(ctx, view_tracker.origin);
         }
 
         // The surface always uses the whole area provided to it

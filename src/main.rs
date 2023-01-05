@@ -48,7 +48,7 @@ fn main() {
         //.with_min_size((300.0, 200.0));
         .window_size((1024.0, 768.0))
         .with_min_size((320.0, 240.0));
-    let launcher = AppLauncher::with_window(window).use_simple_logger();
+    let launcher = AppLauncher::with_window(window).log_to_console();
 
     let event_sink = launcher.get_external_handle();
 
