@@ -17,6 +17,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+//! Stats will show the fps based on AnimFrame, which won't be accurate unless some widget is actually doing painting.
+
 use druid::widget::prelude::*;
 use druid::widget::Label;
 use druid::Application;
@@ -83,7 +85,7 @@ impl<T: Data> Widget<T> for Stats {
                 Application::global().quit();
             }
             Event::AnimFrame(interval) => {
-                ctx.request_anim_frame();
+                //println!("Interval: {}", *interval as f64 / 1_000_000.);
                 self.add_frame_time(*interval);
                 let fps = self.average_fps();
                 if self.fps != fps {
@@ -92,6 +94,7 @@ impl<T: Data> Widget<T> for Stats {
                     ctx.request_update();
                     ctx.request_layout();
                 }
+                ctx.request_anim_frame();
             }
             _ => (),
         }

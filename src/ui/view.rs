@@ -167,9 +167,7 @@ impl Widget<ViewData> for View {
                 //       There might be underflows with 0-delay GIFs.
                 self.current_delay -= *interval as i64;
                 ctx.request_anim_frame();
-                // When we do fine-grained invalidation,
-                // no doubt this will be required:
-                //ctx.request_paint();
+                ctx.request_paint();
 
                 if self.need_legit_layout && self.image_size.is_some() {
                     ctx.request_layout();
