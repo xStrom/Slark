@@ -7,9 +7,8 @@ license = "AGPL-3.0-or-later"
 authors = ["Kaur Kuut <admin@kaurkuut.com>"]
 
 [dependencies]
-#druid = { git = "https://github.com/xi-editor/druid.git" }
-druid = { path = "../druid/druid" }
-#druid = "0.5.0"
+#druid = { path = "../druid/druid" }
+druid = "0.8.3"
 interprocess = { git = "https://github.com/kotauskas/interprocess" }
 png = "0.17.5"
 jpeg-decoder = "0.2.5"
