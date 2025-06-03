@@ -208,8 +208,41 @@ impl Widget<u64> for Surface {
                         "Scale factor now: {}",
                         self.view_trackers[view_id].data.zoom.scale_factor()
                     );
+                } else {
+                    if mouse_event.wheel_delta.y < 0.0 {
+                        self.view_trackers.iter_mut().for_each(|vt| {
+                            vt.data.zoom.turn_the_global_knob(1);
+                            vt.zoom += 1;
+                        });
+                    } else {
+                        self.view_trackers.iter_mut().for_each(|vt| {
+                            vt.data.zoom.turn_the_global_knob(-1);
+                            vt.zoom -= 1;
+                        });
+                    }
+                    ctx.request_update();
+                    ctx.request_layout();
                 }
             }
+            Event::KeyDown(key_event) => match &key_event.key {
+                KbKey::ArrowUp => {
+                    self.view_trackers.iter_mut().for_each(|vt| {
+                        vt.data.zoom.turn_the_global_knob(1);
+                        vt.zoom += 1;
+                    });
+                    ctx.request_update();
+                    ctx.request_layout();
+                }
+                KbKey::ArrowDown => {
+                    self.view_trackers.iter_mut().for_each(|vt| {
+                        vt.data.zoom.turn_the_global_knob(-1);
+                        vt.zoom -= 1;
+                    });
+                    ctx.request_update();
+                    ctx.request_layout();
+                }
+                _ => (),
+            },
             Event::KeyUp(key_event) => match &key_event.key {
                 KbKey::Delete => {
                     if let Some(view_id) = self.active_view {
@@ -311,7 +344,9 @@ impl Widget<u64> for Surface {
             view_tracker
                 .widget_pod
                 .layout(ctx, &BoxConstraints::UNBOUNDED, &view_tracker.data, env);
-            view_tracker.widget_pod.set_origin(ctx, view_tracker.origin);
+
+            let new_origin = (view_tracker.origin.to_vec2() * 1.01f64.powi(view_tracker.zoom)).to_point();
+            view_tracker.widget_pod.set_origin(ctx, new_origin);
         }
 
         // The surface always uses the whole area provided to it
@@ -337,6 +372,7 @@ struct ViewTracker {
     widget_pod: WidgetPod<ViewData, View>,
     origin: Point, // View's origin in relation to Surface
     data: ViewData,
+    zoom: i32,
 }
 
 impl ViewTracker {
@@ -357,6 +393,7 @@ impl ViewTracker {
                 selected: false,
                 zoom: *project_image.zoom(),
             },
+            zoom: 0,
         }
     }
 
