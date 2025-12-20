@@ -20,10 +20,10 @@ Supported image formats are GIF, WebP, JPEG, and PNG.
 
 ## Project status
 
-Slark is in early development. There are plenty of bugs and development time is limited.
+Slark is in slow development. There are plenty of bugs and development time is limited.
 
 ## License
 
-© Copyright 2019-2025 [Kaur Kuut](https://www.kaurkuut.com/)
-
 Slark is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+© Copyright 2019-2025 [Kaur Kuut](https://www.kaurkuut.com/)
