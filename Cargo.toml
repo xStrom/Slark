@@ -12,14 +12,14 @@ masonry_winit = { git = "https://github.com/linebender/xilem", rev = "c85ace612b
 
 interprocess = { git = "https://github.com/kotauskas/interprocess", rev = "fc5f2a22a05dea8833f1505a41d2b79a449a412b" }
 png = "0.17.16"
-jpeg-decoder = "0.2.5"
+jpeg-decoder = "0.2.6"
 webp-animation = "0.6.0"
-gif = "0.11.3"
+gif = "0.11.4"
 gif-dispose = "3.1.1"
-imgref = "1.9.1"
+imgref = "1.12.0"
 rgb = "0.8.52"
-serde = { version = "1.0.137", features = ["derive"] }
-serde_json = "1.0.80"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
 tracing = "0.1.44"
 rfd = "0.16.0"
 pathdiff = "0.2.3"
