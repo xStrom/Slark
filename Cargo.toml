@@ -7,18 +7,22 @@ license = "AGPL-3.0-or-later"
 authors = ["Kaur Kuut <admin@kaurkuut.com>"]
 
 [dependencies]
-#druid = { path = "../druid/druid" }
-druid = "0.8.3"
-interprocess = { git = "https://github.com/kotauskas/interprocess" }
-png = "0.17.5"
+masonry = { git = "https://github.com/linebender/xilem", rev = "c85ace612bca7af7df695799356b59b966e2b152" }
+masonry_winit = { git = "https://github.com/linebender/xilem", rev = "c85ace612bca7af7df695799356b59b966e2b152" }
+
+interprocess = { git = "https://github.com/kotauskas/interprocess", rev = "fc5f2a22a05dea8833f1505a41d2b79a449a412b" }
+png = "0.17.16"
 jpeg-decoder = "0.2.5"
 webp-animation = "0.6.0"
 gif = "0.11.3"
 gif-dispose = "3.1.1"
 imgref = "1.9.1"
-rgb = "0.8.32"
+rgb = "0.8.52"
 serde = { version = "1.0.137", features = ["derive"] }
 serde_json = "1.0.80"
+tracing = "0.1.44"
+rfd = "0.16.0"
+pathdiff = "0.2.3"
 
 [profile.dev.package."*"]
 opt-level = 3
@@ -28,7 +32,21 @@ overflow-checks = false
 incremental = false
 codegen-units = 16
 
-[profile.dev.package.druid]
+[profile.dev.package.masonry]
+opt-level = 0
+debug = true
+debug-assertions = true
+overflow-checks = true
+incremental = true
+
+[profile.dev.package.masonry_core]
+opt-level = 0
+debug = true
+debug-assertions = true
+overflow-checks = true
+incremental = true
+
+[profile.dev.package.masonry_winit]
 opt-level = 0
 debug = true
 debug-assertions = true

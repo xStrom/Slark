@@ -19,19 +19,21 @@
 
 use std::path::{Path, PathBuf};
 
-use druid::kurbo::{Point, Rect, Vec2};
-use druid::widget::prelude::*;
-use druid::{commands, Command, KbKey, Selector, Target, WidgetPod};
+use masonry::accesskit::{Node, Role};
+use masonry::core::keyboard::{Key, KeyState, NamedKey};
+use masonry::core::{
+    AccessCtx, BoxConstraints, ChildrenIds, EventCtx, LayoutCtx, PaintCtx, PointerButton, PointerEvent, PropertiesMut,
+    PropertiesRef, RegisterCtx, ScrollDelta, TextEvent, Widget, WidgetPod,
+};
+use masonry::dpi::PhysicalPosition;
+use masonry::kurbo::{Point, Rect, Size, Vec2};
+use masonry::vello::Scene;
 
 use crate::project::{Image as ProjectImage, Project};
-use crate::ui::view::{View, ViewData};
-use crate::ui::{Tile, Tileize};
-
-pub const COMMAND_ADD_IMAGE: Selector<String> = Selector::new("slark.add_image");
+use crate::ui::View;
 
 pub struct Surface {
-    project: Project,
-    size: Size,
+    pub project: Project, // TODO: Make private, and expose saving
     view_trackers: Vec<ViewTracker>,
     active_view: Option<usize>,
     drag: Option<Drag>,
@@ -41,11 +43,10 @@ impl Surface {
     pub fn new(project: Project) -> Surface {
         let mut view_trackers = Vec::new();
         for project_image in project.images() {
-            view_trackers.push(ViewTracker::new(project.path(), project_image));
+            view_trackers.push(ViewTracker::new(project.dir(), project_image));
         }
         Surface {
             project: project,
-            size: Size::ZERO,
             view_trackers: view_trackers,
             active_view: None,
             drag: None,
@@ -57,7 +58,7 @@ impl Surface {
         self.view_trackers = {
             let mut view_trackers = Vec::new();
             for project_image in self.project.images() {
-                view_trackers.push(ViewTracker::new(self.project.path(), project_image));
+                view_trackers.push(ViewTracker::new(self.project.dir(), project_image));
             }
             view_trackers
         };
@@ -69,7 +70,7 @@ impl Surface {
         self.project.add(filename);
         let project_image = self.project.images().last().unwrap();
         self.view_trackers
-            .push(ViewTracker::new(self.project.path(), project_image));
+            .push(ViewTracker::new(self.project.dir(), project_image));
     }
 
     // Super fragile function, must be same as the project removal.
@@ -106,293 +107,242 @@ impl Surface {
             };
         }
     }
-
-    /// Automatically change the location and zoom factor of all the images in order to fit them all.
-    pub fn tileize(&mut self, ctx: &mut EventCtx) {
-        let mut tileize = Tileize::new(self.size);
-
-        // Add the images
-        for view_tracker in &self.view_trackers {
-            if let Some(image_size) = view_tracker.widget_pod.widget().image_size() {
-                tileize.add(Tile::new(
-                    view_tracker.id,
-                    view_tracker.origin,
-                    image_size,
-                    view_tracker.data.zoom,
-                ));
-            } // .. and ignore the not-yet-loaded views
-        }
-
-        // Do the magic
-        tileize.fit();
-
-        // Apply the changes
-        for tile in tileize.tiles() {
-            self.view_trackers[tile.id()].origin = tile.origin();
-            self.view_trackers[tile.id()].data.zoom = tile.zoom();
-        }
-
-        ctx.request_layout();
-    }
 }
 
-impl Widget<u64> for Surface {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u64, env: &Env) {
-        let mut hacky_children_added = false;
+#[derive(Debug)]
+pub enum SurfaceAction {
+    ShowOpenPanel,
+    ShowSavePanel,
+}
 
+impl Widget for Surface {
+    type Action = SurfaceAction;
+
+    fn register_children(&mut self, ctx: &mut RegisterCtx<'_>) {
+        for view_tracker in self.view_trackers.iter_mut() {
+            ctx.register_child(&mut view_tracker.widget_pod);
+        }
+    }
+
+    fn accessibility_role(&self) -> Role {
+        Role::GenericContainer
+    }
+
+    fn accessibility(&mut self, _ctx: &mut AccessCtx<'_>, _props: &PropertiesRef<'_>, _node: &mut Node) {
+        // TODO: Something?
+    }
+
+    fn children_ids(&self) -> ChildrenIds {
+        let mut cids = ChildrenIds::new();
+        for &idx in self.project.layers().iter() {
+            cids.push(self.view_trackers[idx].widget_pod.id());
+        }
+        cids
+    }
+
+    fn on_pointer_event(&mut self, ctx: &mut EventCtx<'_>, _props: &mut PropertiesMut<'_>, event: &PointerEvent) {
         match event {
-            Event::MouseDown(mouse_event) => {
-                if mouse_event.button.is_left() {
-                    // TODO: Move this focus request elsewhere?
-                    ctx.request_focus();
-                    ctx.set_active(true);
+            PointerEvent::Down(mouse_event) => {
+                if mouse_event.button.is_some_and(|btn| btn == PointerButton::Primary) {
+                    ctx.request_focus(); // TODO: Worth using focus fallback mechanism instead?
+                    ctx.capture_pointer();
                     // Always clear the currently active view
                     if let Some(view_id) = self.active_view {
-                        self.view_trackers[view_id].data.selected = false;
+                        let (c, _) = ctx.get_raw_mut(&mut self.view_trackers[view_id].widget_pod);
+                        c.selected = false;
                         self.active_view = None;
                     }
                     // Locate the topmost layer that gets hit
-                    for &id in self.project.layers().iter().rev() {
-                        let view_tracker = &mut self.view_trackers[id];
-                        let rect = view_tracker.widget_pod.layout_rect();
-                        if rect.contains(mouse_event.pos) {
+                    for &idx in self.project.layers().iter().rev() {
+                        let view_tracker = &mut self.view_trackers[idx];
+                        let rect = Rect::from_origin_size(view_tracker.origin_zoomed(), view_tracker.size);
+                        // TODO: logic/physical Masonry situation is big questionmark
+                        let mouse_pos = ctx.local_position(mouse_event.state.position);
+                        if rect.contains(mouse_pos) {
                             // Set active view
                             self.active_view = Some(view_tracker.id);
-                            view_tracker.data.selected = true;
+                            let (c, _) = ctx.get_raw_mut(&mut view_tracker.widget_pod);
+                            c.selected = true;
                             // Start the drag event
                             self.drag = Some(Drag {
                                 view_id: view_tracker.id,
-                                start: mouse_event.pos,
+                                start: mouse_pos,
                             });
                             break;
                         }
                     }
                 }
             }
-            Event::MouseMove(mouse_event) => {
+            PointerEvent::Move(mouse_event) => {
                 if let Some(drag) = &mut self.drag {
                     if let Some(view_tracker) = self.view_trackers.iter_mut().find(|vt| vt.id == drag.view_id) {
+                        // TODO: logic/physical Masonry situation is big questionmark
+                        let mouse_pos = ctx.local_position(mouse_event.current.position);
                         self.project.set_origin(
                             view_tracker.id,
-                            view_tracker.adjust_origin(&ctx.size(), mouse_event.pos - drag.start),
+                            view_tracker.adjust_origin(&ctx.size(), mouse_pos - drag.start),
                         );
-                        drag.start = mouse_event.pos;
+                        drag.start = mouse_pos;
                         ctx.request_layout();
                     }
                 }
             }
-            Event::MouseUp(mouse_event) => {
-                if mouse_event.button.is_left() {
+            PointerEvent::Up(mouse_event) => {
+                if mouse_event.button.is_some_and(|btn| btn == PointerButton::Primary) {
                     if let Some(drag) = &self.drag {
                         let view_tracker = &mut self.view_trackers[drag.view_id];
+                        // TODO: logic/physical Masonry situation is big questionmark
+                        let mouse_pos = ctx.local_position(mouse_event.state.position);
                         self.project.set_origin(
                             view_tracker.id,
-                            view_tracker.adjust_origin(&ctx.size(), mouse_event.pos - drag.start),
+                            view_tracker.adjust_origin(&ctx.size(), mouse_pos - drag.start),
                         );
                         self.drag = None;
                         ctx.request_layout();
                     }
                 }
             }
-            Event::Wheel(mouse_event) => {
-                if let Some(view_id) = self.active_view {
-                    if mouse_event.wheel_delta.y < 0.0 {
-                        self.view_trackers[view_id].data.zoom.turn_the_knob(1);
-                    } else if mouse_event.wheel_delta.y > 0.0 {
-                        self.view_trackers[view_id].data.zoom.turn_the_knob(-1);
+            PointerEvent::Scroll(mouse_event) => {
+                let delta = match mouse_event.delta {
+                    ScrollDelta::PixelDelta(PhysicalPosition::<f64> { x, y }) => -Vec2 { x, y },
+                    ScrollDelta::LineDelta(x, y) => {
+                        -Vec2 {
+                            x: x as f64,
+                            y: y as f64,
+                        } * 120.0
                     }
-                    self.project
-                        .set_zoom(self.view_trackers[view_id].id, self.view_trackers[view_id].data.zoom);
-                    ctx.request_update();
-                    println!(
-                        "Scale factor now: {}",
-                        self.view_trackers[view_id].data.zoom.scale_factor()
-                    );
+                    _ => Vec2::ZERO,
+                } * ctx.get_scale_factor();
+                if let Some(view_id) = self.active_view {
+                    let (c, mut cctx) = ctx.get_raw_mut(&mut self.view_trackers[view_id].widget_pod);
+                    if delta.y < 0.0 {
+                        c.zoom.turn_the_knob(1);
+                        cctx.request_layout();
+                    } else if delta.y > 0.0 {
+                        c.zoom.turn_the_knob(-1);
+                        cctx.request_layout();
+                    }
+                    self.project.set_zoom(self.view_trackers[view_id].id, c.zoom);
+                    println!("Scale factor now: {}", c.zoom.scale_factor());
                 } else {
-                    if mouse_event.wheel_delta.y < 0.0 {
+                    if delta.y < 0.0 {
                         self.view_trackers.iter_mut().for_each(|vt| {
-                            vt.data.zoom.turn_the_global_knob(1);
+                            let (c, mut cctx) = ctx.get_raw_mut(&mut vt.widget_pod);
+                            c.zoom.turn_the_global_knob(1);
+                            cctx.request_layout();
                             vt.zoom += 1;
                         });
                     } else {
                         self.view_trackers.iter_mut().for_each(|vt| {
-                            vt.data.zoom.turn_the_global_knob(-1);
+                            let (c, mut cctx) = ctx.get_raw_mut(&mut vt.widget_pod);
+                            c.zoom.turn_the_global_knob(-1);
+                            cctx.request_layout();
                             vt.zoom -= 1;
                         });
                     }
-                    ctx.request_update();
                     ctx.request_layout();
                 }
             }
-            Event::KeyDown(key_event) => match &key_event.key {
-                KbKey::ArrowUp => {
-                    self.view_trackers.iter_mut().for_each(|vt| {
-                        vt.data.zoom.turn_the_global_knob(1);
-                        vt.zoom += 1;
-                    });
-                    ctx.request_update();
-                    ctx.request_layout();
-                }
-                KbKey::ArrowDown => {
-                    self.view_trackers.iter_mut().for_each(|vt| {
-                        vt.data.zoom.turn_the_global_knob(-1);
-                        vt.zoom -= 1;
-                    });
-                    ctx.request_update();
-                    ctx.request_layout();
-                }
+            _ => (), // TODO: Do we need to handle Cancel?
+        }
+    }
+
+    fn on_text_event(&mut self, ctx: &mut EventCtx<'_>, _props: &mut PropertiesMut<'_>, event: &TextEvent) {
+        match event {
+            TextEvent::Keyboard(kb_event) if kb_event.state == KeyState::Down => match kb_event.key {
+                Key::Named(named_key) => match named_key {
+                    NamedKey::ArrowUp => {
+                        self.view_trackers.iter_mut().for_each(|vt| {
+                            let (c, mut cctx) = ctx.get_raw_mut(&mut vt.widget_pod);
+                            c.zoom.turn_the_global_knob(1);
+                            cctx.request_layout();
+                            vt.zoom += 1;
+                        });
+                        ctx.request_layout();
+                    }
+                    NamedKey::ArrowDown => {
+                        self.view_trackers.iter_mut().for_each(|vt| {
+                            let (c, mut cctx) = ctx.get_raw_mut(&mut vt.widget_pod);
+                            c.zoom.turn_the_global_knob(-1);
+                            cctx.request_layout();
+                            vt.zoom -= 1;
+                        });
+                        ctx.request_layout();
+                    }
+                    _ => (),
+                },
                 _ => (),
             },
-            Event::KeyUp(key_event) => match &key_event.key {
-                KbKey::Delete => {
-                    if let Some(view_id) = self.active_view {
-                        self.remove(view_id);
-                        ctx.children_changed();
-                    }
-                }
-                KbKey::PageUp => {
-                    if let Some(view_id) = self.active_view {
-                        self.project.shift_layer(view_id, 1);
-                    }
-                }
-                KbKey::PageDown => {
-                    if let Some(view_id) = self.active_view {
-                        self.project.shift_layer(view_id, -1);
-                    }
-                }
-                KbKey::Home => {
-                    self.tileize(ctx);
-                }
-                KbKey::Character(ch) => {
-                    if key_event.mods.ctrl() {
-                        match ch.as_str() {
-                            "s" => {
-                                ctx.submit_command(Command::new(
-                                    commands::SHOW_SAVE_PANEL,
-                                    self.project.file_dialog_options(),
-                                    Target::Auto,
-                                ));
-                            }
-                            "o" => {
-                                ctx.submit_command(Command::new(
-                                    commands::SHOW_OPEN_PANEL,
-                                    self.project.file_dialog_options(),
-                                    Target::Auto,
-                                ));
-                            }
-                            _ => (),
+            TextEvent::Keyboard(kb_event) if kb_event.state == KeyState::Up => match &kb_event.key {
+                Key::Named(named_key) => match named_key {
+                    NamedKey::Delete => {
+                        if let Some(view_id) = self.active_view {
+                            self.remove(view_id);
+                            ctx.children_changed();
                         }
                     }
+                    NamedKey::PageUp => {
+                        if let Some(view_id) = self.active_view {
+                            self.project.shift_layer(view_id, 1);
+                        }
+                    }
+                    NamedKey::PageDown => {
+                        if let Some(view_id) = self.active_view {
+                            self.project.shift_layer(view_id, -1);
+                        }
+                    }
+                    _ => (),
+                },
+                Key::Character(c) if kb_event.modifiers.ctrl() => {
+                    if c == "s" {
+                        ctx.submit_action::<Self::Action>(SurfaceAction::ShowSavePanel);
+                    } else if c == "o" {
+                        ctx.submit_action::<Self::Action>(SurfaceAction::ShowOpenPanel);
+                    }
                 }
                 _ => (),
             },
-            Event::Command(command) => {
-                if command.is(commands::SAVE_FILE_AS) {
-                    let info = command.get_unchecked(commands::SAVE_FILE_AS);
-                    self.project.save(info.path());
-                } else if command.is(commands::OPEN_FILE) {
-                    let info = command.get_unchecked(commands::OPEN_FILE);
-                    self.set_project(Project::open(PathBuf::from(info.path())));
-                    // Need to inform of children changes
-                    ctx.children_changed();
-                    hacky_children_added = true;
-                } else if command.is(COMMAND_ADD_IMAGE) {
-                    let filename = command.get_unchecked(COMMAND_ADD_IMAGE);
-                    self.add(filename.into());
-                    // Need to inform of children changes
-                    ctx.children_changed();
-                    hacky_children_added = true;
-                }
-            }
-            _ => (),
-        }
-
-        if !hacky_children_added {
-            // Pass the event to all the views
-            for view_tracker in self.view_trackers.iter_mut() {
-                view_tracker.widget_pod.event(ctx, event, &mut view_tracker.data, env);
-            }
-        }
-    }
-
-    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &u64, env: &Env) {
-        // Pass the lifecycle to all the views
-        for view_tracker in self.view_trackers.iter_mut() {
-            view_tracker.widget_pod.lifecycle(ctx, event, &view_tracker.data, env);
-        }
-        match event {
-            LifeCycle::HotChanged(hot) => {
-                //println!("Hot changed: {}", hot);
-            }
             _ => (),
         }
     }
 
-    fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &u64, _data: &u64, env: &Env) {
-        // Pass the update to all the views
-        for view_tracker in self.view_trackers.iter_mut() {
-            view_tracker.widget_pod.update(ctx, &view_tracker.data, env);
-        }
-    }
-
-    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &u64, env: &Env) -> Size {
+    fn layout(&mut self, ctx: &mut LayoutCtx<'_>, _props: &mut PropertiesMut<'_>, bc: &BoxConstraints) -> Size {
         bc.debug_check("Surface");
 
         // Determine the layout for all the views
         for view_tracker in self.view_trackers.iter_mut() {
             // We give unbounded constraints as we'll clip everything at the surface level
-            view_tracker
-                .widget_pod
-                .layout(ctx, &BoxConstraints::UNBOUNDED, &view_tracker.data, env);
-
-            let new_origin = (view_tracker.origin.to_vec2() * 1.01f64.powi(view_tracker.zoom)).to_point();
-            view_tracker.widget_pod.set_origin(ctx, new_origin);
+            let size = ctx.run_layout(&mut view_tracker.widget_pod, &BoxConstraints::UNBOUNDED);
+            view_tracker.size = size;
+            let origin_zoomed = view_tracker.origin_zoomed();
+            ctx.place_child(&mut view_tracker.widget_pod, origin_zoomed);
         }
 
         // The surface always uses the whole area provided to it
-        bc.max()
+        let size = bc.max();
+        ctx.set_clip_path(size.to_rect());
+        size
     }
 
-    fn paint(&mut self, ctx: &mut PaintCtx, _data: &u64, env: &Env) {
-        // Store our size
-        self.size = ctx.size();
-        // Clip the overflow
-        ctx.render_ctx.clip(Rect::from_origin_size(Point::ZERO, self.size));
-
-        // Paint all the views in the configured layer order
-        for &id in self.project.layers().iter() {
-            let view_tracker = &mut self.view_trackers[id];
-            view_tracker.widget_pod.paint(ctx, &view_tracker.data, env);
-        }
-    }
+    fn paint(&mut self, _ctx: &mut PaintCtx<'_>, _props: &PropertiesRef<'_>, _scene: &mut Scene) {}
 }
 
 struct ViewTracker {
     id: usize,
-    widget_pod: WidgetPod<ViewData, View>,
+    widget_pod: WidgetPod<View>,
     origin: Point, // View's origin in relation to Surface
-    data: ViewData,
+    size: Size,
     zoom: i32,
 }
 
 impl ViewTracker {
-    fn new(project_path: Option<&Path>, project_image: &ProjectImage) -> ViewTracker {
-        let image_full_path = match project_path {
-            Some(path) => match path.parent() {
-                Some(path) => path.join(project_image.path()).canonicalize().unwrap(), // TODO: This is a common unwrap panic, if .ark contains path which doesn't exist
-                None => project_image.path().to_path_buf(),
-            },
-            None => project_image.path().to_path_buf(),
-        };
-
+    fn new(project_dir: Option<&Path>, project_image: &ProjectImage) -> ViewTracker {
+        let image_full_path = project_image.path_abs(project_dir);
         ViewTracker {
             id: project_image.id(),
-            widget_pod: WidgetPod::new(View::new(&image_full_path)),
+            widget_pod: WidgetPod::new(View::new(&image_full_path, *project_image.zoom())),
             origin: *project_image.origin(),
-            data: ViewData {
-                selected: false,
-                zoom: *project_image.zoom(),
-            },
+            size: Size::ZERO, // TODO: Init with real size?
             zoom: 0,
         }
     }
@@ -400,7 +350,7 @@ impl ViewTracker {
     fn adjust_origin(&mut self, surface_size: &Size, delta: Vec2) -> Point {
         // Make sure there remains at least 5dp visible on each axis
         let mut origin = self.origin + delta;
-        let rect = self.widget_pod.layout_rect();
+        let rect = Rect::from_origin_size(self.origin, self.size);
         let min_x = -(rect.width()) + 5.0;
         let min_y = -(rect.height()) + 5.0;
         let max_x = surface_size.width - 5.0;
@@ -409,6 +359,10 @@ impl ViewTracker {
         origin.y = origin.y.max(min_y).min(max_y);
         self.origin = origin;
         origin
+    }
+
+    fn origin_zoomed(&self) -> Point {
+        (self.origin.to_vec2() * 1.01f64.powi(self.zoom)).to_point()
     }
 }
 

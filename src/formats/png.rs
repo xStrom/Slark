@@ -23,8 +23,8 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
 
-use druid::kurbo::Size;
 use imgref::ImgVec;
+use masonry::kurbo::Size;
 use png::ColorType;
 use rgb::RGBA8;
 

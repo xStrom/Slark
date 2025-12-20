@@ -22,8 +22,8 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
 
-use druid::kurbo::Size;
 use imgref::ImgVec;
+use masonry::kurbo::Size;
 use rgb::RGBA8;
 use webp_animation::{ColorMode, Decoder};
 

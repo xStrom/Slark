@@ -17,10 +17,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use druid::Data;
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Data, Copy, Clone, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Serialize, Deserialize)]
 pub struct Zoom {
     knob: i32, // 0 means no zoom, negative zooms out
     #[serde(skip)]

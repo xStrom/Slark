@@ -22,13 +22,24 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
-use druid::kurbo::Point;
-use druid::{FileDialogOptions, FileSpec};
+use masonry::kurbo::Point;
+use pathdiff::diff_paths;
 use serde::{Deserialize, Serialize};
 
 use crate::ui::Zoom;
 
-const PROJECT_FILE_TYPE: FileSpec = FileSpec::new("Slark project", &["ark"]);
+pub const FILE_DESC: &str = "Slark project";
+pub const FILE_EXT: &str = "ark";
+
+pub fn image_path_abs(project_dir: Option<&Path>, image_path: &Path) -> PathBuf {
+    if image_path.is_absolute() {
+        return image_path.to_path_buf();
+    }
+    if let Some(project_dir) = project_dir {
+        return project_dir.join(image_path).canonicalize().unwrap();
+    }
+    image_path.canonicalize().unwrap()
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct Project {
@@ -51,7 +62,7 @@ impl Project {
         let file = File::open(&path).expect("Failed to open file");
         let reader = BufReader::new(file);
         let mut project: Project = serde_json::from_reader(reader).expect("Failed to read file");
-        project.state.path = Some(path);
+        project.set_path(&path);
         project
     }
 
@@ -67,37 +78,50 @@ impl Project {
         self.state.dirty
     }
 
-    pub fn path(&self) -> Option<&Path> {
-        match &self.state.path {
-            Some(path) => Some(path.as_path()),
+    pub fn dir(&self) -> Option<&Path> {
+        match &self.state.dir {
+            Some(dir) => Some(dir.as_path()),
             None => None,
         }
     }
 
-    pub fn file_dialog_options(&self) -> FileDialogOptions {
-        FileDialogOptions::new()
-            .allowed_types(vec![PROJECT_FILE_TYPE])
-            .default_type(PROJECT_FILE_TYPE)
+    /// Sets the project save path and the derived work directory.
+    fn set_path(&mut self, path: &Path) {
+        self.state.dir = Some(path.parent().unwrap().canonicalize().unwrap());
+        self.state.path = Some(self.state.dir.as_deref().unwrap().join(path.file_name().unwrap()));
+    }
+
+    /// Change the project save path.
+    ///
+    /// This calls [`set_path`] and then also updates all the relative image paths.
+    fn change_path(&mut self, path: &Path) {
+        if self.state.path.as_deref().is_some_and(|p| p == path) {
+            return;
+        }
+        let old_project_dir = self.state.dir.clone();
+        self.set_path(path);
+        let project_dir = self.state.dir.as_deref().unwrap();
+        for img in &mut self.images {
+            let image_path = image_path_abs(old_project_dir.as_deref(), &img.path);
+            img.path = diff_paths(&image_path, project_dir).unwrap();
+        }
     }
 
     pub fn save(&mut self, path: &Path) {
+        self.change_path(path);
         if let Ok(json) = serde_json::to_string(self) {
             let mut file = File::create(path).expect("Failed to create file");
             file.write_all(json.as_bytes()).expect("Failed to write file");
             file.sync_all().expect("Failed to sync file");
             self.state.dirty = false;
-            let path_changed = if let Some(current_path) = &self.state.path {
-                path != current_path
-            } else {
-                true
-            };
-            if path_changed {
-                self.state.path = Some(PathBuf::from(path));
-            }
         }
     }
 
     pub fn add(&mut self, path: PathBuf) {
+        let mut path = path.canonicalize().unwrap();
+        if let Some(project_dir) = self.state.dir.as_deref() {
+            path = diff_paths(&path, project_dir).unwrap();
+        }
         let next_id = self.images.len();
         self.images.push(Image {
             id: next_id,
@@ -186,6 +210,10 @@ impl Image {
         &self.path
     }
 
+    pub fn path_abs(&self, project_dir: Option<&Path>) -> PathBuf {
+        image_path_abs(project_dir, &self.path)
+    }
+
     pub fn origin(&self) -> &Point {
         &self.origin
     }
@@ -205,5 +233,6 @@ struct PointDef {
 #[derive(Default)]
 struct State {
     path: Option<PathBuf>,
+    dir: Option<PathBuf>,
     dirty: bool,
 }

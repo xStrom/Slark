@@ -19,58 +19,19 @@
 
 use std::fs::read_dir;
 
-use druid::piet::Color;
-use druid::widget::Flex;
-use druid::widget::{CrossAxisAlignment, MainAxisAlignment};
-use druid::widget::{Padding, SizedBox};
-use druid::Widget;
-use druid::WidgetExt;
+use masonry::{
+    core::{NewWidget, Properties, Widget, WidgetTag},
+    properties::{types::CrossAxisAlignment, Gap},
+    widgets::Flex,
+};
 
 use super::{Stats, Surface};
 use crate::project::Project;
 
-pub fn ui_rootx() -> impl Widget<u64> {
-    let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::End);
-
-    let bc0 = Color::rgb8(255, 255, 255);
-    let bc1 = Color::rgb8(255, 0, 0);
-    let bc2 = Color::rgb8(0, 255, 0);
-    let bc3 = Color::rgb8(0, 0, 255);
-
-    col.add_child(Stats::new());
-
-    col.add_child(SizedBox::empty().width(98.0).height(28.0).border(bc2.clone(), 1.0));
-
-    let mut row = Flex::row()
-        .must_fill_main_axis(true)
-        .main_axis_alignment(MainAxisAlignment::SpaceBetween);
-
-    row.add_flex_child(SizedBox::empty().width(980.).height(28.0).border(bc1.clone(), 1.0), 1.0);
-    //row.add_flex_child(SizedBox::empty().width(980.).height(28.0).border(bc2.clone(), 1.0), 1.0);
-    //row.add_flex_child(SizedBox::empty().width(980.).height(28.0).border(bc3.clone(), 1.0), 1.0);
-
-    col.add_flex_child(row, 1.0);
-
-    let mut root_flex = Flex::column();
-
-    let mut col_container = Flex::row();
-    col_container.add_flex_child(col, 1.0);
-
-    root_flex.add_child(Padding::new(
-        25.0,
-        SizedBox::new(col_container)
-            .width(100.0)
-            .height(150.0)
-            .border(bc0.clone(), 1.0),
-    ));
-
-    root_flex
-}
-
-pub fn ui_root(filenames: Vec<String>) -> impl Widget<u64> {
+pub fn ui_root(filenames: Vec<String>) -> (impl Widget, Properties) {
     let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Start);
 
-    col.add_child(Stats::new());
+    col = col.with_fixed(NewWidget::new(Stats::new()));
 
     let mut project;
     if filenames.len() > 0 && filenames[0].ends_with(".ark") {
@@ -99,8 +60,8 @@ pub fn ui_root(filenames: Vec<String>) -> impl Widget<u64> {
     //load_x(&mut project);
 
     let surface = Surface::new(project);
-    col.add_flex_child(surface, 1.0);
-    col
+    col = col.with(NewWidget::new_with_tag(surface, WidgetTag::named("surface")), 1.0);
+    (col, Properties::one(Gap::ZERO))
 }
 
 fn load_x(project: &mut Project) {

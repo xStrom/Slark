@@ -24,9 +24,9 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
 
-use druid::kurbo::Size;
 use imgref::ImgVec;
 use jpeg_decoder::Decoder;
+use masonry::kurbo::Size;
 use rgb::RGBA8;
 
 use crate::image::Frame;

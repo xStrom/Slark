@@ -26,9 +26,6 @@ pub use stats::*;
 mod surface;
 pub use surface::*;
 
-mod tileize;
-pub use tileize::*;
-
 mod view;
 pub use view::*;
 

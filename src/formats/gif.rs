@@ -23,9 +23,9 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
 
-use druid::kurbo::Size;
 use gif_dispose::Screen;
 use imgref::ImgVec;
+use masonry::kurbo::Size;
 use rgb::{RGB8, RGBA8};
 
 use crate::image::Frame;
