@@ -277,6 +277,7 @@ impl Widget for Surface {
                     }
                     _ => (),
                 },
+                // TODO: Using code instead probably makes more sense for non-latin keyboards
                 Key::Character(c) if kb_event.modifiers.ctrl() => {
                     if c == "s" {
                         ctx.submit_action::<Self::Action>(SurfaceAction::ShowSavePanel);
